@@ -70,6 +70,28 @@ def main() -> None:
         check=True,
     )
     (bundle / "requirements.lock").write_text("\n".join(requirements) + "\n")
+    (bundle / "sbom.cdx.json").write_text(
+        json.dumps(
+            {
+                "bomFormat": "CycloneDX",
+                "specVersion": "1.5",
+                "version": 1,
+                "components": [
+                    {
+                        "type": "library",
+                        "name": name,
+                        "version": release,
+                        "purl": f"pkg:pypi/{name}@{release}",
+                    }
+                    for name, release in [
+                        r.split("==") for r in [f"unilark=={version}", *requirements]
+                    ]
+                ],
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     shutil.copyfile(ROOT / "src/unilark/lifecycle/installer.py", bundle / "install.py")
     shutil.copyfile(ROOT / "config.example.toml", bundle / "config.example.toml")
     shutil.copyfile(ROOT / "README.md", bundle / "README.md")
@@ -81,6 +103,8 @@ def main() -> None:
         "python": list(sys.version_info[:2]),
         "schema_min": 2,
         "schema_max": 2,
+        "schema_input_min": 1,
+        "schema_output": 2,
         "license": "UNLICENSED",
         "distribution": "local experimental; publication undecided",
         "files": {

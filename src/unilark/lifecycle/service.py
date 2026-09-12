@@ -92,6 +92,43 @@ def managed(path: Path, *, adopt: bool = False) -> None:
     raise ValueError("Existing unit is not owned by this Unilark installation")
 
 
+def handoff(args: argparse.Namespace, observed: dict[str, Any]) -> dict[str, Any]:
+    """A foreground heartbeat alone cannot establish successful service handoff."""
+    result = call(
+        ["show", UNIT, "-p", "MainPID", "-p", "ActiveState", "-p", "UnitFileState"], args.system
+    )
+    fields = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    ready = (
+        result.returncode == 0
+        and fields.get("ActiveState") == "active"
+        and fields.get("UnitFileState") in ("enabled", "enabled-runtime")
+        and fields.get("MainPID") == str(observed.get("pid"))
+        and observed.get("state") == "running"
+        and observed.get("running")
+    )
+    if ready:
+        try:
+            command = (
+                Path(f"/proc/{int(fields['MainPID'])}/cmdline").read_bytes().decode().split("\0")
+            )
+            ready = all(
+                key in command
+                and Path(command[command.index(key) + 1]).absolute() == path.absolute()
+                for key, path in (
+                    ("--config", args.config),
+                    ("--state", args.state),
+                    ("--credentials", args.credentials),
+                )
+            )
+        except (OSError, ValueError, IndexError):
+            ready = False
+    return {
+        "status": "passed" if ready else "pending",
+        "scope": "system" if args.system else "user",
+        "basis": "enabled service PID matches live heartbeat and explicit configuration",
+    }
+
+
 def run(args: argparse.Namespace) -> int:
     if sys.platform != "linux" or not shutil.which("systemctl"):
         raise ValueError("This release supports Linux systemd; other platforms are not verified")
@@ -124,6 +161,16 @@ def run(args: argparse.Namespace) -> int:
         executable = (
             Path(args.executable) if args.executable else Path(sys.executable).parent / "unilark"
         )
+        if not args.executable:
+            # Installed entrypoints contain a version-specific Python shebang.
+            # Keep the unit pointed at the activation link, not that pinned interpreter.
+            for parent in executable.parents:
+                if (
+                    parent.parent.name == "releases"
+                    and (parent.parent.parent / "install.json").exists()
+                ):
+                    executable = parent.parent.parent / "current/.venv/bin/unilark"
+                    break
         if not executable.is_file():
             raise ValueError("Installed unilark executable not found")
         content = unit_text(executable, args.config, args.state, args.credentials, args.system)

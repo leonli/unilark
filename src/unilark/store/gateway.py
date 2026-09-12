@@ -91,10 +91,12 @@ class GatewayStore(Ledger):
                 ).fetchone()["id"]
             )
             prior = self.db.execute(
-                "SELECT owner FROM session_meta WHERE binding=?", (binding,)
+                "SELECT owner,state FROM session_meta WHERE binding=?", (binding,)
             ).fetchone()
             if prior and prior["owner"] != owner.key:
                 raise ValueError("Binding belongs to another owner")
+            if prior and prior["state"] != "ACTIVE":
+                raise ValueError("Existing session is not active; use /resume before attaching")
             self.db.execute(
                 "INSERT OR IGNORE INTO session_meta VALUES(?,?,?,?)",
                 (binding, owner.key, "CREATING" if action == "create" else "ATTACHING", title),
@@ -173,10 +175,12 @@ class GatewayStore(Ledger):
         binding = self.bind(profile, native)
         with self.db:
             old = self.db.execute(
-                "SELECT owner FROM session_meta WHERE binding=?", (binding,)
+                "SELECT owner,state FROM session_meta WHERE binding=?", (binding,)
             ).fetchone()
             if old and old["owner"] != owner.key:
                 raise ValueError("Binding already belongs to another owner")
+            if old and old["state"] != "ACTIVE":
+                raise ValueError("Existing session is not active; use /resume before attaching")
             self.db.execute(
                 "INSERT OR IGNORE INTO session_meta VALUES(?,?,?,?)",
                 (binding, owner.key, state, title),
@@ -322,6 +326,18 @@ class GatewayStore(Ledger):
                 (owner.key,),
             )
         ]
+
+    def control_observation(self, owner: Owner, event: str, values: dict[str, Any]) -> None:
+        with self.db:
+            row = self.db.execute(
+                "SELECT body FROM inbox WHERE owner=? AND event=?", (owner.key, event)
+            ).fetchone()
+            body = json.loads(row[0]) if row and row[0] else {}
+            body.update(values)
+            self.db.execute(
+                "UPDATE inbox SET body=? WHERE owner=? AND event=?",
+                (json.dumps(body), owner.key, event),
+            )
 
     def request_state(self, owner: Owner, event: str, state: str) -> None:
         with self.db:

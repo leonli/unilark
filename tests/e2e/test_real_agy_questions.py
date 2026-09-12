@@ -22,9 +22,11 @@ async def test_real_question_workspace_and_stale_decision(tmp_path, cancel):
         pytest.skip("Explicit AGY instance required")
     client = load_agy(Path(config))
     native = str(uuid.uuid4())
+    created = False
     try:
         await client.check()
         await client.create(native, workspace=str(tmp_path))
+        created = True
         await client.send(
             native,
             "Integration test. Use ask_question to ask exactly one single-choice question: "
@@ -57,5 +59,30 @@ async def test_real_question_workspace_and_stale_decision(tmp_path, cancel):
             assert str(tmp_path) in reply
             assert step.questions[0].options[0][1].lower() in reply.lower()
     finally:
-        await client.stop(native)
+        try:
+            if created:
+                await client.stop(native)
+        finally:
+            await client.close()
+
+
+async def test_real_distinct_workspaces_with_same_name(tmp_path):
+    from unilark.adapters.sidecars.agy.projects import project_for, read_workspace
+
+    config = os.environ.get("UNILARK_REAL_AGY_CONFIG")
+    if not config:
+        pytest.skip("Explicit AGY instance required")
+    client = load_agy(Path(config))
+    try:
+        await client.check()
+        folders = [tmp_path / parent / "same-project-name" for parent in ("one", "two")]
+        ids = []
+        for folder in folders:
+            folder.mkdir(parents=True)
+            project = await project_for(client.transport, str(folder))
+            assert await read_workspace(client.transport, project) == str(folder)
+            assert await project_for(client.transport, str(folder)) == project
+            ids.append(project)
+        assert ids[0] != ids[1]
+    finally:
         await client.close()

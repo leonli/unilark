@@ -90,7 +90,11 @@ class Journal:
     def set_context(self, binding: str, workspace: str, project: str) -> None:
         with self.db:
             self.db.execute(
-                "INSERT OR IGNORE INTO session_context VALUES(?,?,?,?)",
+                "INSERT INTO session_context VALUES(?,?,?,?) ON CONFLICT(binding) DO UPDATE SET "
+                "workspace=CASE WHEN session_context.workspace='' THEN excluded.workspace "
+                "ELSE session_context.workspace END, "
+                "project_id=CASE WHEN session_context.project_id='' THEN excluded.project_id "
+                "ELSE session_context.project_id END, updated=excluded.updated",
                 (binding, workspace, project, time.time()),
             )
 

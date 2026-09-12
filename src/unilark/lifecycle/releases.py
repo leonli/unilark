@@ -40,7 +40,7 @@ def installation(prefix: Path) -> dict[str, Any]:
 
 async def safe_point(args: argparse.Namespace) -> None:
     credentials = load_credentials(args.credentials)
-    store = sqlite3.connect(args.state)
+    store = sqlite3.connect(args.state.resolve().as_uri() + "?mode=ro", uri=True)
     store.row_factory = sqlite3.Row
     client = load_agy(args.config)
     try:
@@ -77,14 +77,15 @@ async def safe_point(args: argparse.Namespace) -> None:
         await client.close()
 
 
-def compatible(target: Path, state: Path) -> bool:
+def compatible(target: Path, state: Path, *, migrate: bool = False) -> bool:
     data = json.loads((target / "release.json").read_text())
-    db = sqlite3.connect(state)
+    db = sqlite3.connect(state.resolve().as_uri() + "?mode=ro", uri=True)
     try:
         schema = db.execute("PRAGMA user_version").fetchone()[0]
     finally:
         db.close()
-    return bool(data["schema_min"] <= schema <= data["schema_max"])
+    minimum = data.get("schema_input_min", data["schema_min"]) if migrate else data["schema_min"]
+    return bool(minimum <= schema <= data["schema_max"])
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -100,7 +101,7 @@ async def run(args: argparse.Namespace) -> int:
     status = service.call(["show", service.UNIT, "-p", "ActiveState", "--value"], args.system)
     was_active = status.returncode == 0 and status.stdout.strip() == "active"
     if (
-        was_active
+        unit.exists()
         and str(prefix / "current/.venv/bin/unilark").replace("%", "%%") not in unit.read_text()
     ):
         raise ValueError("Install the service with the stable current executable before upgrading")
@@ -145,13 +146,14 @@ async def run(args: argparse.Namespace) -> int:
         if not selected:
             raise ValueError("No previous installed version")
         target = prefix / "releases" / selected
-    if not compatible(target, args.state):
-        raise ValueError(
-            "No verified compatible schema rollback; database will not be restored over new data"
-        )
     stopped = False
     switched = False
     try:
+        if not compatible(target, args.state, migrate=args.command == "upgrade"):
+            raise ValueError(
+                "No verified compatible schema rollback; "
+                "database will not be restored over new data"
+            )
         if was_active:
             result = service.call(["stop", service.UNIT], args.system, mutate=True)
             if result.returncode:
@@ -165,14 +167,17 @@ async def run(args: argparse.Namespace) -> int:
             backup_database(args.state, backup)
             probe = subprocess.run(  # noqa: S603
                 [
-                    str(target / ".venv/bin/unilark"),
+                    str(target / ".venv/bin/python"),
+                    "-m",
+                    "unilark.lifecycle.migration",
                     "--config",
                     str(args.config),
                     "--credentials",
                     str(args.credentials),
-                    "--state",
+                    "--source",
                     str(backup),
-                    "doctor",
+                    "--output",
+                    str(backup.with_suffix(".candidate.db")),
                 ],
                 capture_output=True,
                 text=True,
@@ -181,7 +186,8 @@ async def run(args: argparse.Namespace) -> int:
             )
             report = json.loads(probe.stdout)
             if (
-                report.get("agy", {}).get("status") != "verified"
+                probe.returncode != 0
+                or report.get("agy", {}).get("status") != "verified"
                 or report.get("lark", {}).get("owner") != "paired"
             ):
                 raise ValueError(
@@ -249,6 +255,9 @@ async def run(args: argparse.Namespace) -> int:
         elif not switched and stopped:
             service.call(["start", service.UNIT], args.system, mutate=True)
         raise
+    finally:
+        if args.command == "upgrade" and selected not in record["releases"]:
+            shutil.rmtree(target)
 
 
 def parsers(commands: Any) -> None:

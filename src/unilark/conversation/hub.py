@@ -348,14 +348,30 @@ class Hub:
                         self.notify("reply:" + event, binding, "队列已继续", "空闲后提交下一项。")
                     elif action == "stop":
                         self.require(Capability.INTERRUPT)
+                        before_stop = await self.runtime.view(native)
                         if request["body"]:
                             intent = json.loads(request["body"])
-                            if (await self.runtime.view(native)).anchor != intent["fingerprint"]:
+                            if (
+                                intent.get("fingerprint")
+                                and before_stop.anchor != intent["fingerprint"]
+                            ):
                                 raise ValueError("Old stop card belongs to an earlier turn")
+                        self.store.control_observation(
+                            self.owner,
+                            event,
+                            {
+                                "stop_observed_at": time.time(),
+                                "stop_was_busy": not before_stop.idle,
+                                "stop_anchor": before_stop.anchor,
+                            },
+                        )
                         writing = True
                         confirmed = await self.runtime.stop(native)
                         if not confirmed:
                             raise RuntimeError("Stop has not yet been confirmed")
+                        self.store.control_observation(
+                            self.owner, event, {"stop_idle_confirmed": True}
+                        )
                         self.notify(
                             "reply:" + event,
                             binding,
@@ -419,6 +435,9 @@ class Hub:
                             intent["step"],
                             allow=intent["decision"] == "allow",
                             fingerprint=intent["fingerprint"],
+                        )
+                        self.store.control_observation(
+                            self.owner, event, {"applied_at": time.time()}
                         )
                         self.notify(
                             "reply:" + event,

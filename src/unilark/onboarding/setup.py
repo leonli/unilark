@@ -13,6 +13,7 @@ from pathlib import Path
 
 from unilark.lifecycle.diagnostics import collect
 from unilark.lifecycle.files import private_directory, write_json
+from unilark.lifecycle.service import handoff
 from unilark.onboarding.credentials import load_credentials
 from unilark.onboarding.lark_check import check_application
 from unilark.store.gateway import GatewayStore
@@ -73,18 +74,22 @@ async def run(args: argparse.Namespace) -> int:
         "verified_platform": sys.platform == "linux" and platform.machine() == "x86_64",
     }
     passed = report["acceptance"]
+    report["service_handoff"] = handoff(args, report["service"])
     accepted = all(
         passed.get(k, {}).get("status") == "passed"
         for k in ("text_roundtrip", "desktop_ui_relay", "lark_permission_and_stop")
     )
     report["setup_state"] = (
-        "ready" if status == 0 and accepted else "external_steps_or_acceptance_pending"
+        "ready"
+        if status == 0 and accepted and report["service_handoff"]["status"] == "passed"
+        else "external_steps_or_acceptance_pending"
     )
     if not accepted:
         report["repairs"].append(
-            "在专用会话完成手机与桌面接力、允许/停止验收；已有 owner 不需要重配。"
+            "在专用会话完成手机与桌面接力、允许/停止，然后运行 acceptance verify 保存核验；"
+            "已有 owner 不需要重配。"
         )
-    if not report["service"].get("running"):
+    if report["service_handoff"]["status"] != "passed":
         report["repairs"].append("先 run 前台验收；随后 service install / start 交接唯一后台进程。")
     report["conditions"] = [
         "AGY 必须独立运行并登录。",

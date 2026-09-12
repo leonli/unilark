@@ -1,7 +1,7 @@
 # Lark / 飞书配置与真实接力验收
 
 适用锁定的 `lark-channel-sdk==1.4.0`，资料核对：2026-09-12。
-向导已做静态语法检查，尚未用真实租户走完；界面的中英文名称可能不同。
+本机配置与真实租户闭环已经验证；新用户自助安装旅程尚未由另一位用户验收。界面名称可能不同。
 
 ## 本机已完成配置
 
@@ -14,13 +14,13 @@
 依赖已安装，AGY 已保留登录，直接在可交互的 VM 终端运行：
 
 ```bash
-cd /home/lileon/doc/unilark/repo
-./scripts/setup-lark.sh ../spike/runtime/unilark.toml
+unilark --config /private/path/agy.toml setup
 ```
 
 App Secret 只在向导中隐藏输入，不作为聊天内容或命令参数。
-默认 `~/.unilark/` 为 0700、`lark.env` 为 0600。中断后可重跑，已有值可按 Enter 保留，
-已配对 owner 不会被替换。设置 `UNILARK_DATA_DIR` 可改数据目录，运行时也须指定同一 `--state`。
+默认 `~/.unilark/` 为 0700、`lark.env` 为 0600。中断后可重跑，已有值保留，
+已配对 owner 不会被替换。自定义目录须显式传 `--state` 和 `--credentials`。
+旧 `scripts/setup-lark.sh` 仍作为开发辅助，正式流程和服务交接见 [安装指南](install.md)。
 
 ## 本人操作的五步
 
@@ -71,7 +71,8 @@ cd /home/lileon/doc/unilark/repo
 | 重启网关，继续旧会话 | 绑定与队列恢复；已接受输入不重发，UNKNOWN 不盲目再发 |
 | 不同用户私聊/点卡片，或在群中发消息 | 不启动任务、不执行控制 |
 
-断网、429 和发送超时等故障也要在真实 Lark 验证；离线覆盖不能勾掉真机项。
+真实 Lark 长连接断网恢复证据见 [0.0.2 报告](RELEASE-0.0.2.md)。429/发送超时为受控注入，未声称产生真实上游限流。
+真实操作后运行 `acceptance verify` 保存核验；命令及需要本机确认的步骤见 [安装指南](install.md)。
 
 ## 诊断
 

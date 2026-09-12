@@ -6,6 +6,7 @@ import pytest
 
 from test_gateway import OWNER, new, send
 from test_gateway import gateway as gateway
+from unilark.adapters.sidecars.agy.transport import RpcError
 from unilark.adapters.sidecars.interface import CapabilitySnapshot
 from unilark.adapters.sidecars.views import Rejected, SessionView, StepView
 from unilark.store.gateway import GatewayStore
@@ -68,6 +69,21 @@ async def test_explicit_runtime_rejection_is_not_unknown(gateway):
     await send(hub, "rejected task")
     await hub.tick()
     assert store.operations(OWNER)[0]["state"] == "REJECTED"
+
+
+@pytest.mark.parametrize("status", ["2", "4", "13", "14", "16"])
+async def test_rpc_failure_after_write_remains_unknown_and_pauses(gateway, status):
+    hub, store, runtime, _ = gateway
+    session = await new(hub, store)
+
+    async def fail(*args, **kwargs):
+        raise RpcError(status)
+
+    runtime.send = fail
+    await send(hub, "possibly executed")
+    await hub.tick()
+    assert store.operations(OWNER)[0]["state"] == "UNKNOWN"
+    assert store.session(OWNER, session["id"])["queue_state"] == "PAUSED"
 
 
 async def test_acknowledge_unknown_does_not_resend_or_claim_no_execution(gateway):
@@ -153,3 +169,23 @@ def test_schema_upgrade_preserves_v1_data_and_blocks_old_code(tmp_path):
     assert store.owner(OWNER.account) == OWNER
     assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
     store.close()
+
+
+async def test_one_hundred_busy_input_races_preserve_queue_and_fixed_routing(gateway):
+    hub, store, runtime, _ = gateway
+    first = await new(hub, store)
+    second = await new(hub, store)
+    for index in range(100):
+        runtime.views[first["native_id"]] = SessionView(False, "running", str(index), [])
+        store.switch(OWNER, first["id"])
+        message = await send(hub, f"queued-{index}")
+        store.switch(OWNER, second["id"])
+        await hub.accept(message)  # duplicate arrives after selection changed
+        await hub.tick()
+        assert len(runtime.sent) == index
+        runtime.views[first["native_id"]] = SessionView(True, "idle", str(index), [])
+        await hub.tick()
+        assert len(runtime.sent) == index + 1
+        assert runtime.sent[-1][:2] == (first["native_id"], f"queued-{index}")
+        runtime.views[first["native_id"]] = SessionView(True, "idle", str(index), [])
+    assert len(store.operations(OWNER)) == 100

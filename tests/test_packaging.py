@@ -52,7 +52,7 @@ def test_cli_runs_as_module(tmp_path: pathlib.Path) -> None:
     直接 import 调用会漏掉 ``__main__`` 路径和 argparse 的 exit 行为，而用户敲的是
     命令不是函数。
     """
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603
         [
             sys.executable,
             "-m",

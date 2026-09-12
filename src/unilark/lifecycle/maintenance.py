@@ -68,7 +68,7 @@ def run(args: argparse.Namespace) -> int:
                 store.close()
         print("已记录本机决议并保留暂停；不表示任务未执行，也不会重发。")
         return 0
-    store = GatewayStore(args.state)
+    store = GatewayStore(args.state, readonly=args.command != "retry-delivery")
     try:
         owner = store.owner(credentials.account)
         if owner is None:

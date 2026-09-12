@@ -17,19 +17,17 @@ from typing import Any
 
 import httpx
 
-from unilark.adapters.sidecars.views import Rejected
-
 
 class ProtocolError(Exception):
     """A reply cannot prove that the requested operation succeeded."""
 
 
-class RpcError(Rejected):
-    """An explicit runtime rejection; do not include untrusted server text."""
+class RpcError(Exception):
+    """RPC failure does not establish whether a write executed before the error."""
 
     def __init__(self, status: str) -> None:
         self.status = status
-        super().__init__(f"AGY RPC rejected the request (grpc-status={status})")
+        super().__init__(f"AGY RPC failed (grpc-status={status})")
 
 
 @dataclass(frozen=True)

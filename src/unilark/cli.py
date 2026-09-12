@@ -34,6 +34,10 @@ async def _run(args: argparse.Namespace) -> int:
         from .onboarding.setup import run as setup
 
         return await setup(args)
+    if args.command == "acceptance":
+        from .onboarding.acceptance import run as acceptance
+
+        return await acceptance(args)
     if args.command == "pair":
         from .lifecycle.runner import pair
 
@@ -46,7 +50,7 @@ async def _run(args: argparse.Namespace) -> int:
         return await run(args.config, args.credentials, args.state)
     if args.command == "sessions":
         credentials = load_credentials(args.credentials)
-        store = GatewayStore(args.state)
+        store = GatewayStore(args.state, readonly=True)
         try:
             owner = store.owner(credentials.account)
             if owner is None:
@@ -74,7 +78,7 @@ async def _run(args: argparse.Namespace) -> int:
 
             credentials = load_credentials(args.credentials)
             with InstanceLock(args.state.with_suffix(".lock")):
-                store = GatewayStore(args.state)
+                store = GatewayStore(args.state, readonly=True)
                 try:
                     channel = LarkChannel(credentials, store.owner(credentials.account))
                     configure(Redactor((credentials.app_secret,)))
@@ -174,8 +178,25 @@ def main(argv: list[str] | None = None) -> int:
     doctor = commands.add_parser("doctor", help="分项检查运行健康与历史验收")
     doctor.add_argument("--connect-lark", action="store_true", help="网关停止后独占长连接探测")
     doctor.add_argument("--check-api", action="store_true", help="核验应用认证与机器人启用状态")
-    commands.add_parser("setup", help="首次配置或继续未完成步骤；保留 owner 与会话").add_argument(
-        "--non-interactive", action="store_true"
+    setup_parser = commands.add_parser("setup", help="首次配置或继续未完成步骤；保留 owner 与会话")
+    setup_parser.add_argument("--non-interactive", action="store_true")
+    setup_parser.add_argument("--system", action="store_true", help="核验显式安装的系统级服务")
+    acceptance_parser = commands.add_parser(
+        "acceptance", help="核验真实会话和平台消息并保存安装验收"
+    )
+    acceptance_parser.add_argument("acceptance_action", choices=("verify",))
+    acceptance_parser.add_argument(
+        "capability", choices=("text_roundtrip", "desktop_ui_relay", "lark_permission_and_stop")
+    )
+    acceptance_parser.add_argument("--binding", required=True)
+    acceptance_parser.add_argument(
+        "--confirm-tool-effect", action="store_true", help="已核验受控工具的实际效果"
+    )
+    acceptance_parser.add_argument(
+        "--confirm-native-view", action="store_true", help="本人已在原生桌面看到同一任务"
+    )
+    acceptance_parser.add_argument(
+        "--confirm-desktop-ui", action="store_true", help="本人已在原生桌面输入过该任务"
     )
     commands.add_parser("pair", help="在本机确认一次性私聊配对")
     commands.add_parser("run", help="前台运行；退出保留外部 AGY")

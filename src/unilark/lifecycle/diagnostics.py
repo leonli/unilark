@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -98,7 +99,7 @@ async def collect(
                         )
             finally:
                 store.close()
-        except (OSError, ValueError):
+        except (OSError, ValueError, sqlite3.Error):
             result["database"] = {"state": "unavailable_or_incompatible"}
             result["repairs"].append("保留数据库；使用兼容程序版本或一致性备份修复。")
     service = result["service"]

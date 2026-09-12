@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from unilark.adapters.sidecars.agy.transport import ProtocolError, Transport
+from unilark.adapters.sidecars.agy.transport import ProtocolError, RpcError, Transport
 
 
 def directory(value: str) -> Path:
@@ -35,17 +35,24 @@ async def project_for(transport: Transport, path: str) -> str:
     )
     response = await transport.call("ReadProject", {"id": project_id})
     if not response.get("project"):
-        await transport.call(
-            "CreateProject",
-            {
-                "project": {
-                    "id": project_id,
-                    "name": workspace.name or str(workspace),
-                    "projectResources": {"resources": [{"folderUri": workspace.as_uri()}]},
-                    "isWorkspaceOnly": True,
-                }
-            },
-        )
+        try:
+            await transport.call(
+                "CreateProject",
+                {
+                    "project": {
+                        "id": project_id,
+                        # AGY enforces globally unique project names, including other folders.
+                        "name": f"{workspace.name[:64] or 'workspace'}-Unilark-{project_id}",
+                        "projectResources": {"resources": [{"folderUri": workspace.as_uri()}]},
+                        "isWorkspaceOnly": True,
+                    }
+                },
+            )
+        except RpcError as error:
+            if error.status != "6":
+                raise
+            # A concurrent creator may have succeeded. Read the exact ID and path;
+            # this never retries the write or guesses from an error alone.
     if await read_workspace(transport, project_id) != str(workspace):
         raise ProtocolError("Existing project workspace differs; refusing to rebind")
     return project_id

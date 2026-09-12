@@ -1,49 +1,52 @@
 # 本机运行维护
 
-2026-09-12：本机配置与 owner 配对已完成，不必再跑配置向导。
-`unilark.service` 是系统级 unit，以 `lileon` 用户运行网关；已启动并启用开机启动。
-AGY 由原有独立宿主管理，网关退出或重启不关闭桌面、不清理登录与会话。
-AGY 尚未加入开机托管；机器重启后需先恢复该实例，再确认网关健康。
+2026-09-12：本机 Lark 配置、owner 配对和 AGY 登录均已完成。不要重配 owner 或另启 WebSocket 消费者。
+当前网关为本地安装的 0.0.2；程序入口 `~/.local/bin/unilark`，发行目录 `~/.local/share/unilark/`。
 
 ```bash
-systemctl status unilark.service
-cd /home/lileon/doc/unilark/repo
-.venv/bin/unilark --config ../spike/runtime/unilark.toml doctor
-sudo systemctl restart unilark.service
-# 停止并保留全部状态：
+~/.local/bin/unilark --config /home/lileon/doc/unilark/spike/runtime/unilark.toml doctor
+~/.local/bin/unilark --config /home/lileon/doc/unilark/spike/runtime/unilark.toml setup --non-interactive --system
+~/.local/bin/unilark service status --system
+~/.local/bin/unilark service restart --system
+```
+
+| 服务 | 职责 |
+|---|---|
+| `unilark.service` | 网关、队列、Lark 收发，以 lileon 运行 |
+| `unilark-agy.service` | 私有原生宿主、原 AGY 安装/profile/keyring |
+| `unilark-desktop.service` | 本机 Xvfb :99、桌面及回环 noVNC |
+
+三者均已启用且由 systemd 监督；AGY 依赖桌面服务。实际整机重启/睡眠恢复尚未验收。
+网关重启不关闭 AGY，也不清理登录与原生历史。不要为测试这些服务重启生产 web-xia 或整台 VM。
+AGY/桌面两个 unit 是本机私有环境配置，不属于通用网关卸载范围。
+
+```bash
+systemctl status unilark.service unilark-agy.service unilark-desktop.service
 sudo systemctl stop unilark.service
-```
-
-unit 位于 `/etc/systemd/system/unilark.service`。异常退出后等 15 秒再启动，
-5 分钟内最多启动 10 次；若 AGY 不可用而达到限制，恢复 AGY 后执行：
-
-```bash
-sudo systemctl reset-failed unilark.service
 sudo systemctl start unilark.service
+# 仅在服务达到重启限额且已修复原因时：
+sudo systemctl reset-failed unilark.service
 ```
 
-服务使用 `UMask=0077`、`NoNewPrivileges=true`、只读系统/家目录，
-仅允许网关写入 `~/.unilark/`。unit 只包含凭据文件路径，不包含 Secret。
-本机实例发现需要读取同用户的 `/proc` 与访问 AGY 回环 HTTPS，因此不隔离网络或隐藏进程。
+网关异常退出等 15 秒重启，5 分钟最多 10 次。服务设 UMask=0077、NoNewPrivileges、只读系统/家目录，
+允许网关写入 `~/.unilark/`。unit 只包含凭据文件路径。AGY 发现需要读取同用户 /proc 和回环 API。
 
-| 内容 | 位置 |
+| 内容 | 路径 |
 |---|---|
 | 实例配置 | `/home/lileon/doc/unilark/spike/runtime/unilark.toml` |
-| 凭据 | `~/.unilark/lark.env`（0600） |
-| 状态与历史验收 | `~/.unilark/state.db` |
-| 网关日志 | `~/.unilark/gateway.log` |
-| 服务单元副本和验证快照 | `~/.unilark/run/` |
+| 凭据 | `~/.unilark/lark.env`，0600 |
+| 状态与历史验收 | `~/.unilark/state.db`，schema 2 |
+| 新版应用日志 | `~/.unilark/gateway-app.log`，5 MB × 3 个备份 |
+| 旧版历史日志 | `~/.unilark/gateway.log`，保留 |
+| unit 副本、验证快照 | `~/.unilark/run/` |
+| 一致性备份 | `~/.unilark/backups/` |
+| 私有故障证据 | `/home/lileon/doc/unilark/spike/evidence/` |
 
-PID 会变化，以 `systemctl show unilark.service -p MainPID` 和 doctor 的进程启动身份为准；
-`run/gateway.json` 只是最近核对的快照。不要仅凭旧 PID 停进程。
-日志可能包含运行信息，不应公开上传；Secret 已通过日志脱敏处理。
+PID 以 `systemctl show unilark.service -p MainPID` 和 doctor 的启动身份为准；`run/gateway.json` 只是快照。
+doctor 返回 0 表示当前进程、心跳、Lark、AGY 观测及待确认/阻塞状态均通过；返回 2 表示待修复。
+历史 acceptance 不随离线消失，也不是完整产品验收的声明。
 
-doctor 返回 0 表示当前进程/心跳、连接、AGY 会话观测及待确认/阻塞状态均通过检查，
-返回 2 表示未就绪。`acceptance` 保存已完成的真实验证，不会因服务停机而自动消失，
-也不代表当前版本已经通过全部产品验收。
+同一应用不得同时运行 run、pair 或 doctor --connect-lark。停止网关不会停止已经在 AGY 执行的任务；
+需要停止任务时使用 Lark 停止按钮或 `/stop`。UNKNOWN 保留账本，按 [安装维护指南](install.md) 本机核对。
 
-同一应用不要同时启动 `run`、`pair` 或 `doctor --connect-lark` 的第二个消费者。
-更改源码后须重启服务才载入新代码；运行过程中不要删除账本强制重发 UNKNOWN 操作。
-停止服务仅暂停网关工作，已经在 AGY 执行的任务仍可能继续；需要停止任务时先在 Lark 使用停止按钮或 `/stop`。
-
-此 unit 是本机配置；通用安装器、日志轮转、升级回退与跨平台服务管理尚未交付。
+本机未创建远程仓库、未公开发布。离线期间入站消息能否补发取决于 Lark；没有回执时先核对状态，避免重复任务。
