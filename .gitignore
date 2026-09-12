@@ -1,0 +1,29 @@
+# 凭据与租户数据：PRD 15.1 明令禁止入库
+.env
+*.env
+!.env.example
+*.pem
+*.key
+
+# 本地账本与运行期产物
+*.db
+*.db-wal
+*.db-shm
+.unilark/
+diagnostics/
+exports/
+
+# Spike 产物（含截图、DOM 快照，可能带账号痕迹）
+spike/runtime/
+spike/evidence/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

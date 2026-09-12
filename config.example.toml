@@ -1,0 +1,8 @@
+# Non-secret config. Point at an already authorized AGY instance.
+# This early M1 client does not start or terminate AGY.
+[agy]
+executable = "/absolute/path/to/Antigravity-x64/antigravity"
+user_data = "/absolute/path/to/isolated/home/.agy-user-data"
+project_id = "project-id-from-your-desktop"
+model = "verified-native-model-enum"
+source_label = "Lark · Unilark"

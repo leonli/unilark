@@ -1,0 +1,82 @@
+name: CI
+
+# PRD 15.3 要求的四类门禁：格式/静态检查、单元与集成测试、依赖漏洞扫描、密钥扫描。
+#
+# 一条必须写死的口径（PRD 12.4）：**CI 全绿不等于验收通过。** 打了 real_agy /
+# real_lark 标记的用例需要真实 AGY 桌面端和真实 Lark 租户，CI 里跑不了，也不许用
+# fake adapter 顶替。所以这里显式把它们排除掉，并在日志里说明，避免有人拿一块绿牌
+# 去冒充真机验收。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[dev,lark]"
+      - name: ruff format --check
+        run: ruff format --check .
+      - name: ruff lint
+        run: ruff check --output-format=github .
+      - name: mypy
+        run: mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev,lark]"
+      - name: 单元与集成测试（不含真机用例）
+        run: |
+          echo "::notice::real_agy / real_lark 用例不在 CI 内运行；发布前必须在真实 AGY 与真实 Lark 租户上跑过（PRD 12.4）"
+          pytest -q -m "not real_agy and not real_lark"
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: python -m pip install --upgrade "pip>=26.2"
+      - run: pip install -e ".[dev,lark]" pip-audit
+      - name: 依赖漏洞扫描
+        run: |
+          python scripts/audit_dependencies.py > "$RUNNER_TEMP/unilark-audit.txt"
+          pip-audit --strict --no-deps --disable-pip --progress-spinner off -r "$RUNNER_TEMP/unilark-audit.txt"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # gitleaks 要扫全历史，浅克隆会漏掉早期提交里的密钥
+      - name: 密钥扫描
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
