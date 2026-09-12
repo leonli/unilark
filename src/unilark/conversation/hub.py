@@ -8,10 +8,13 @@ import secrets
 import time
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from unilark.adapters.sidecars.views import Busy, Runtime, SessionView
+from unilark.adapters.sidecars.interface import Capability, CapabilityLevel, CapabilitySnapshot
+from unilark.adapters.sidecars.views import Busy, Rejected, Runtime, SessionView
 from unilark.conversation.channel import Action, Channel, Message, Owner
+from unilark.conversation.questions import parse as parse_answers
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card, chunks
 from unilark.store.gateway import GatewayStore
@@ -19,6 +22,7 @@ from unilark.store.gateway import GatewayStore
 HELP = (
     "/new [标题] · /attach 原生UUID · /sessions · /switch 会话ID\n"
     "/status · /stop · /continue · /steer 补充要求 · /cancel 请求ID\n"
+    "/archive · /resume 会话ID · /cwd 绝对目录 · /capabilities\n"
     "普通文本排为下一项任务；引用卡片固定投给卡片原会话。"
 )
 
@@ -32,12 +36,28 @@ class Hub:
         owner: Owner,
         profile: str,
         redactor: Redactor,
+        default_workspace: str = "",
     ) -> None:
         self.store, self.runtime, self.channel = store, runtime, channel
         self.owner, self.profile, self.redactor = owner, profile, redactor
         self.views: dict[str, SessionView | None] = {}
         self.stopping = asyncio.Event()
         self.report_health: Callable[[], None] | None = None
+        self.default_workspace = default_workspace
+        self.capabilities = getattr(runtime, "capabilities", CapabilitySnapshot("unknown", "", ""))
+
+    def require(self, capability: Capability) -> None:
+        if self.capabilities.level(capability) == CapabilityLevel.UNSUPPORTED:
+            raise ValueError(
+                "当前实例不支持该操作；可在原生桌面处理。修改任务前请先明确停止并确认空闲。"
+            )
+
+    def session_label(self, session: dict[str, Any]) -> str:
+        context = self.store.journal.context(session["id"])
+        return self.redactor.text(
+            f"{session['title']} · {self.capabilities.engine_kind}\n"
+            f"会话 {session['id']}\n工作目录：{context['workspace'] or '由原生项目管理'}"
+        )
 
     def notify(self, key: str, binding: str | None, title: str, text: str) -> None:
         safe = self.redactor.text(text)
@@ -71,25 +91,64 @@ class Hub:
             self.notify("reply:" + event, None, "暂不支持该消息", "当前实验版支持私聊纯文本。")
             return
         text = message.text.strip()
+        if any(secret in message.text for secret in self.redactor.secrets):
+            self.store.receive(self.owner, event, "noop", None, "")
+            self.store.request_state(self.owner, event, "DONE")
+            self.store.audit("known_credential_in_input")
+            self.notify("reply:" + event, None, "输入未提交", "消息含应用凭据，已拒绝保存和执行。")
+            return
         if not text or len(text) > 100_000:
             self.store.audit("invalid_input_size")
             return
         binding: str | None = None
         try:
             binding = self.store.target(self.owner, message.reply_to)
+            if message.reply_to and not text.startswith("/"):
+                question = self.store.quoted_question(self.owner, message.reply_to)
+                if question:
+                    view = self.views.get(question["binding"])
+                    if view is None:
+                        raise ValueError("暂未取得问题的最新状态，请稍后再答。")
+                    step = next(
+                        (
+                            s
+                            for s in view.steps
+                            if s.index == question["step"]
+                            and s.fingerprint == question["fingerprint"]
+                        ),
+                        None,
+                    )
+                    if step is None or not step.questions:
+                        raise ValueError("问题已改变；请查看最新卡片。")
+                    parse_answers(step.questions, message.text)
+                    self.store.answer_text(self.owner, message.reply_to, event, message.text)
+                    self.notify(
+                        "reply:" + event,
+                        binding,
+                        "回答已保存",
+                        "将核对原问题后提交；不会启动新的任务。",
+                    )
+                    return
             command, _, body = text.partition(" ")
             if not text.startswith("/"):
                 command, body = "input", message.text
             else:
                 command = command[1:]
-            if command in ("help", "whoami"):
+            if command in ("help", "whoami", "capabilities"):
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
                 self.notify(
                     "reply:" + event,
                     binding,
                     "Unilark",
-                    HELP if command == "help" else self.owner.user,
+                    HELP
+                    if command == "help"
+                    else self.owner.user
+                    if command == "whoami"
+                    else "\n".join(
+                        f"{c.capability}: {c.level} · {c.detail}" for c in self.capabilities.claims
+                    )
+                    + "\n完整事件重放、请求原生幂等、独立工具沙箱：不支持。",
                 )
             elif command in ("new", "attach"):
                 native = str(uuid.uuid4()) if command == "new" else str(uuid.UUID(body.strip()))
@@ -100,6 +159,9 @@ class Hub:
                     native,
                     "create" if command == "new" else "attach",
                     self.redactor.text(body or "新会话")[:80],
+                    self.store.journal.preference(
+                        self.owner.key, self.profile, "workspace", self.default_workspace
+                    ),
                 )
                 self.notify(
                     "reply:" + event,
@@ -107,8 +169,39 @@ class Hub:
                     "会话准备中",
                     f"会话 {binding}\n准备成功后自动提交排队输入。",
                 )
-            elif command in ("sessions", "status"):
+                if command == "new":
+                    workspace = self.store.journal.preference(
+                        self.owner.key, self.profile, "workspace"
+                    )
+                    if workspace:
+                        self.store.journal.set_context(binding, workspace, "")
+            elif command == "cwd":
+                directory = Path(body.strip()).expanduser()
+                if not body.strip() or not directory.is_absolute() or not directory.is_dir():
+                    raise ValueError("/cwd 后需要已存在的绝对目录；只影响后续新会话。")
+                self.store.journal.set_preference(
+                    self.owner.key, self.profile, "workspace", str(directory.resolve())
+                )
+                self.store.receive(self.owner, event, "noop", binding, "")
+                self.store.request_state(self.owner, event, "DONE")
+                self.notify(
+                    "reply:" + event,
+                    binding,
+                    "新会话工作目录已设置",
+                    str(directory.resolve())
+                    + "\n已绑定会话保持原目录。工具权限仍由 AGY 审批决定。",
+                )
+            elif command in ("sessions", "status", "list"):
+                command = "sessions" if command == "list" else command
                 self.store.receive(self.owner, event, command, binding, "")
+            elif command in ("archive", "resume"):
+                target = body.strip() if command == "resume" else binding
+                if not target:
+                    raise ValueError("请指定或选择会话。")
+                session = self.store.session(self.owner, target)
+                if session["profile"] != self.profile:
+                    raise ValueError("会话属于另一个实例。")
+                self.store.receive(self.owner, event, command, target, "")
             elif command == "switch":
                 self.store.switch(self.owner, body.strip())
                 binding = body.strip()
@@ -132,6 +225,8 @@ class Hub:
                 if session["profile"] != self.profile:
                     raise ValueError("会话属于另一个 AGY 实例，不能重绑。")
                 if command in ("input", "steer"):
+                    if command == "steer":
+                        self.require(Capability.STEER)
                     if not body.strip():
                         raise ValueError("/steer 后需要补充内容。")
                     self.store.accept_input(self.owner, event, binding, body, command)
@@ -139,6 +234,8 @@ class Hub:
                         "reply:" + event, binding, "输入已保存", "已进入本地队列；尚未开始执行。"
                     )
                 else:
+                    if command == "stop":
+                        self.require(Capability.INTERRUPT)
                     self.store.receive(self.owner, event, command, binding, "")
                     self.notify(
                         "reply:" + event,
@@ -163,14 +260,27 @@ class Hub:
 
     async def requests(self) -> None:
         for request in self.store.requests(self.owner):
+            if self.stopping.is_set():
+                break
             event, binding, action = request["event"], request["binding"], request["action"]
             self.store.request_state(self.owner, event, "SUBMITTING")
             writing = False
             try:
                 if action in ("sessions", "status"):
                     sessions = self.store.sessions(self.owner)
-                    text = "\n".join(
-                        f"{s['id']} · {s['title']} · {s['state']} · 队列 {s['queue_state']}"
+                    text = "\n\n".join(
+                        self.session_label(s)
+                        + f"\n{s['state']} · 队列 {s['queue_state']} · "
+                        + str(
+                            sum(
+                                o["state"] == "QUEUED" and o["binding_id"] == s["id"]
+                                for o in self.store.operations(self.owner)
+                            )
+                        )
+                        + " 项待提交\n最近观测："
+                        + str(
+                            (self.store.journal.observation(s["id"]) or {}).get("status", "未观测")
+                        )
                         for s in sessions
                     )
                     text += "\n投递状态：" + json.dumps(
@@ -185,14 +295,43 @@ class Hub:
                         raise ValueError("Configured runtime differs from this binding")
                     native = session["native_id"]
                     if action == "create":
+                        context = self.store.journal.context(binding)
+                        workspace = context["workspace"]
+                        if not workspace and hasattr(self.runtime, "workspace"):
+                            workspace = await self.runtime.workspace()
+                            self.store.journal.set_context(binding, workspace, "")
                         writing = True
-                        await self.runtime.create(native)
+                        await self.runtime.create(native, workspace=workspace)
                         self.store.session_state(binding, "ACTIVE")
                         self.notify(
                             "reply:" + event,
                             binding,
                             "会话已建立",
                             f"会话 {binding}\n原生会话 {native}",
+                        )
+                    elif action == "archive":
+                        if not (await self.runtime.view(native)).idle:
+                            raise ValueError("运行中的会话不能归档；先停止并确认空闲。")
+                        self.store.archive(self.owner, binding)
+                        self.notify(
+                            "reply:" + event,
+                            binding,
+                            "会话已归档",
+                            "已暂停本地同步和队列；原生历史保留。/resume 会话ID 可恢复。",
+                        )
+                    elif action == "resume":
+                        if session["state"] != "ARCHIVED":
+                            raise ValueError("只有已归档会话可用 /resume 恢复。")
+                        view = await self.runtime.view(native)
+                        if not view.steps:
+                            raise ValueError("无法验证原生历史，未恢复会话。")
+                        self.store.session_state(binding, "ACTIVE")
+                        self.store.switch(self.owner, binding)
+                        self.notify(
+                            "reply:" + event,
+                            binding,
+                            "已恢复原会话",
+                            "继续同步同一原生历史；队列保持暂停，发送 /continue 可继续。",
                         )
                     elif action == "attach":
                         view = await self.runtime.view(native)
@@ -208,6 +347,7 @@ class Hub:
                         self.store.resume(binding)
                         self.notify("reply:" + event, binding, "队列已继续", "空闲后提交下一项。")
                     elif action == "stop":
+                        self.require(Capability.INTERRUPT)
                         if request["body"]:
                             intent = json.loads(request["body"])
                             if (await self.runtime.view(native)).anchor != intent["fingerprint"]:
@@ -222,7 +362,47 @@ class Hub:
                             "已确认空闲",
                             "停止操作已确认，队列保持暂停。",
                         )
+                    elif action == "answer":
+                        self.require(Capability.INTERACTION)
+                        intent = json.loads(request["body"])
+                        view = await self.runtime.view(native)
+                        current = next(
+                            (
+                                s
+                                for s in view.steps
+                                if s.index == intent["step"]
+                                and s.fingerprint == intent["fingerprint"]
+                                and s.status == "waiting"
+                                and s.questions
+                            ),
+                            None,
+                        )
+                        if current is None:
+                            raise ValueError("问题已结束或改变，旧回答未提交。")
+                        cancel = intent["decision"] == "cancel"
+                        answers = (
+                            ()
+                            if cancel
+                            else parse_answers(
+                                current.questions, intent.get("text", ""), intent["decision"]
+                            )
+                        )
+                        writing = True
+                        await self.runtime.answer(
+                            native,
+                            intent["step"],
+                            answers,
+                            fingerprint=intent["fingerprint"],
+                            cancel=cancel,
+                        )
+                        self.notify(
+                            "reply:" + event,
+                            binding,
+                            "已取消问题" if cancel else "回答已提交",
+                            "后续结果以 AGY 当前状态为准。",
+                        )
                     elif action == "resolve":
+                        self.require(Capability.INTERACTION)
                         intent = json.loads(request["body"])
                         view = await self.runtime.view(native)
                         if not any(
@@ -248,10 +428,12 @@ class Hub:
                         )
                 self.store.request_state(self.owner, event, "DONE")
             except Exception as error:
-                if not writing and isinstance(error, (ValueError, KeyError)):
+                if isinstance(error, Rejected) or (
+                    not writing and isinstance(error, (ValueError, KeyError))
+                ):
                     self.store.request_state(self.owner, event, "REJECTED")
                     self.notify("reply:" + event, binding, "操作未执行", str(error))
-                    if binding and action == "attach":
+                    if binding and action in ("attach", "create"):
                         self.store.session_state(binding, "UNAVAILABLE")
                     continue
                 self.store.request_state(self.owner, event, "UNKNOWN" if writing else "QUEUED")
@@ -276,7 +458,7 @@ class Hub:
             session = self.store.session(self.owner, binding)
             if session["profile"] != self.profile:
                 continue
-            if action not in ("create", "attach", "stop", "resolve"):
+            if action not in ("create", "attach", "stop", "resolve", "answer"):
                 self.store.request_state(self.owner, request["event"], "QUEUED")
                 continue
             try:
@@ -292,7 +474,7 @@ class Hub:
                     self.store.session_state(binding, "ACTIVE")
             elif action == "stop":
                 confirmed = view.idle
-            elif action == "resolve":
+            elif action in ("resolve", "answer"):
                 intent = json.loads(request["body"])
                 current = [s for s in view.steps if s.index == intent["step"]]
                 confirmed = bool(current) and (
@@ -310,6 +492,8 @@ class Hub:
 
     def project(self, session: dict[str, Any], view: SessionView) -> None:
         binding = session["id"]
+        observation = self.store.journal.observe(binding, view)
+        label = self.session_label(session)
         own = {
             op["request_id"]: op
             for op in self.store.operations(self.owner)
@@ -325,7 +509,11 @@ class Hub:
         for rid, indices in hits.items():
             if len(indices) == 1 and own[rid]["state"] in ("UNKNOWN", "SUBMITTING"):
                 self.store.finish(rid, "ACCEPTED", indices[0])
-        live = {s.fingerprint for s in view.steps if s.permission and s.status == "waiting"}
+        live = {
+            s.fingerprint
+            for s in view.steps
+            if (s.permission or s.questions) and s.status == "waiting"
+        }
         if not view.idle:
             live.add(view.anchor)
         self.store.close_interactions(binding, live)
@@ -345,9 +533,15 @@ class Hub:
             payloads = []
             for part, content in enumerate(chunks(safe)):
                 card_key = key + f":{part}"
-                payload = card(title, content + "\n\n会话 " + binding)
+                payload = card(title, content + "\n\n" + label)
                 cid = self.store.card_id(self.owner, card_key)
-                if step.status == "waiting" and step.permission and part == 0:
+                if (
+                    step.status == "waiting"
+                    and step.permission
+                    and part == 0
+                    and self.capabilities.level(Capability.INTERACTION)
+                    != CapabilityLevel.UNSUPPORTED
+                ):
                     interaction = self.store.interaction(
                         self.owner, binding, cid, "permission", step.fingerprint, step.index
                     )
@@ -371,18 +565,58 @@ class Hub:
                         buttons,
                     )
                 payloads.append(payload)
+            if (
+                step.questions
+                and step.status == "waiting"
+                and self.capabilities.level(Capability.INTERACTION) != CapabilityLevel.UNSUPPORTED
+            ):
+                cid = self.store.card_id(self.owner, key + ":0")
+                interaction = self.store.interaction(
+                    self.owner, binding, cid, "question", step.fingerprint, step.index
+                )
+                question_text = "\n\n".join(
+                    str(i + 1) + ". " + q.text + "\n" + "、".join(label for _, label in q.options)
+                    for i, q in enumerate(step.questions)
+                )
+                buttons = []
+                if interaction["status"] == "OPEN" and interaction["expires"] > time.time():
+                    if (
+                        len(step.questions) == 1
+                        and not step.questions[0].multi
+                        and len(step.questions[0].options) <= 5
+                    ):
+                        buttons = [
+                            (
+                                self.redactor.text(label)[:40],
+                                interaction["token"],
+                                "answer:" + identity,
+                            )
+                            for identity, label in step.questions[0].options
+                        ]
+                    buttons.append(("取消问题", interaction["token"], "cancel"))
+                    question_text += (
+                        "\n\n可引用此卡片回复，每题一行；多选用逗号分隔。5 分钟未处理将取消问题。"
+                    )
+                elif interaction["status"] == "OPEN":
+                    self.store.expire_permission(self.owner, interaction)
+                question_text += "\n\n" + label
+                payloads = [card("AGY 等待回答", self.redactor.text(question_text)[:3300], buttons)]
             self.save_parts(key, binding, payloads)
         state_key = "state:" + binding
-        payload = card(
-            "AGY · " + view.status, "会话 " + binding + "\n本地队列：" + session["queue_state"]
-        )
+        context = label + "\n本地队列：" + session["queue_state"]
+        if observation.get("gap_since"):
+            context += "\n存在离线或历史变化区间；已核对当前快照，不能保证补齐全部中间事件。"
+        payload = card("AGY · " + view.status, context)
         cid = self.store.card_id(self.owner, state_key + ":0")
-        if not view.idle:
+        if (
+            not view.idle
+            and self.capabilities.level(Capability.INTERRUPT) != CapabilityLevel.UNSUPPORTED
+        ):
             interaction = self.store.interaction(self.owner, binding, cid, "stop", view.anchor, -1)
             if interaction["status"] == "OPEN" and interaction["expires"] > time.time():
                 payload = card(
                     "AGY · " + view.status,
-                    "会话 " + binding + "\n本地队列：" + session["queue_state"],
+                    context,
                     [("停止并暂停队列", interaction["token"], "stop")],
                 )
         self.save_parts(state_key, binding, [payload])
@@ -396,12 +630,15 @@ class Hub:
             if s["state"] == "ACTIVE" and s["profile"] == self.profile
         ]
         for session in sessions:
+            if self.stopping.is_set():
+                break
             try:
                 view = await self.runtime.view(session["native_id"])
                 self.views[session["id"]] = view
                 self.project(session, view)
             except Exception:
                 self.views[session["id"]] = None
+                self.store.journal.unavailable(session["id"])
                 self.notify(
                     "state:" + session["id"],
                     session["id"],
@@ -416,14 +653,46 @@ class Hub:
             if s["profile"] == self.profile
         )
         for op in sorted(operations, key=lambda o: (o["kind"] != "steer", o["ordinal"])):
+            if self.stopping.is_set():
+                break
             binding = op["binding_id"]
             self.notify(
                 "reply:" + op["source_id"],
                 binding,
                 "输入 · " + op["state"],
-                f"请求 {op['request_id']}\n{self.redactor.text(op['content'])}",
+                f"请求 {op['request_id']}\n{self.redactor.text(op['content'])}"
+                + (
+                    "\n队列位置："
+                    + str(
+                        sum(
+                            o["binding_id"] == binding
+                            and o["state"] == "QUEUED"
+                            and o["ordinal"] <= op["ordinal"]
+                            for o in operations
+                        )
+                    )
+                    if op["state"] == "QUEUED"
+                    else ""
+                )
+                + (
+                    "\n已由本机确认不再跟踪；不表示原生任务未执行。"
+                    if op["state"] == "DISMISSED"
+                    else ""
+                ),
             )
             if op["state"] != "QUEUED" or uncertain:
+                continue
+            if (
+                op["kind"] == "steer"
+                and self.capabilities.level(Capability.STEER) == CapabilityLevel.UNSUPPORTED
+            ):
+                self.store.cancel_queued(self.owner, op["request_id"])
+                self.notify(
+                    "reply:" + op["source_id"],
+                    binding,
+                    "补充未提交",
+                    "当前实例不支持 steer；请先停止并确认空闲，再发送新的任务。",
+                )
                 continue
             session = self.store.session(self.owner, binding)
             current_view = self.views.get(binding)
@@ -445,6 +714,8 @@ class Hub:
                 self.store.finish(op["request_id"], "ACCEPTED")
             except Busy:
                 self.store.requeue_unsent(op["request_id"])
+            except Rejected:
+                self.store.finish(op["request_id"], "REJECTED")
             except Exception:
                 self.store.finish(op["request_id"], "UNKNOWN")
                 self.store.pause(binding)
@@ -459,7 +730,14 @@ class Hub:
         await self.flush()
 
     async def flush(self) -> None:
+        if not getattr(self.channel, "connected", True):
+            return
+        shutdown_deadline = time.monotonic() + 5
         for row in self.store.dirty_cards(self.owner):
+            if not getattr(self.channel, "connected", True):
+                break
+            if self.stopping.is_set() and time.monotonic() > shutdown_deadline:
+                break
             self.store.delivery_started(row["id"])
             try:
                 result = await self.channel.deliver(

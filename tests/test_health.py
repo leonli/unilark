@@ -96,3 +96,22 @@ def test_doctor_separates_live_health_from_historical_acceptance(
         assert store.validations(owner, profile + "-other") == {}
     finally:
         store.close()
+
+
+def test_readonly_diagnostics_never_migrate_or_create_a_database(tmp_path):
+    state = tmp_path / "state.db"
+    store = GatewayStore(state)
+    store.db.execute("PRAGMA user_version=1")
+    store.close()
+    observer = GatewayStore(state, readonly=True)
+    assert observer.db.execute("PRAGMA user_version").fetchone()[0] == 1
+    import sqlite3
+
+    import pytest
+
+    with pytest.raises(sqlite3.OperationalError):
+        observer.db.execute("PRAGMA user_version=2")
+    observer.close()
+    with pytest.raises(sqlite3.OperationalError):
+        GatewayStore(tmp_path / "missing.db", readonly=True)
+    assert not (tmp_path / "missing.db").exists()

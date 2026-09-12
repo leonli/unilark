@@ -46,22 +46,31 @@ def test_cli_version_matches_package() -> None:
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__), "版本号格式不对"
 
 
-def test_cli_runs_as_module() -> None:
+def test_cli_runs_as_module(tmp_path: pathlib.Path) -> None:
     """真的起一个进程跑一遍。
 
     直接 import 调用会漏掉 ``__main__`` 路径和 argparse 的 exit 行为，而用户敲的是
     命令不是函数。
     """
     proc = subprocess.run(
-        [sys.executable, "-m", "unilark.cli", "doctor"],
+        [
+            sys.executable,
+            "-m",
+            "unilark.cli",
+            "--state",
+            str(tmp_path / "state.db"),
+            "--credentials",
+            str(tmp_path / "missing.env"),
+            "doctor",
+        ],
         capture_output=True,
         text=True,
         cwd=REPO / "src",
         check=False,
     )
     assert proc.returncode == 2, proc.stderr
-    assert "M1" in proc.stdout
-    assert "闭环未验收" in proc.stdout
+    assert '"stage": "experimental"' in proc.stdout
+    assert '"status": "not_configured"' in proc.stdout
 
 
 def test_no_placeholder_implementations() -> None:

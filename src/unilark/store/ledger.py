@@ -13,10 +13,21 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from unilark.lifecycle.files import private_directory
+
 
 class Ledger:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    def __init__(self, path: Path, *, readonly: bool = False) -> None:
+        if readonly:
+            if path.is_symlink():
+                raise ValueError("Ledger must not be a symlink")
+            self.db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
+            self.db.row_factory = sqlite3.Row
+            if self.db.execute("PRAGMA user_version").fetchone()[0] not in (1, 2):
+                self.db.close()
+                raise ValueError("Unsupported database schema")
+            return
+        private_directory(path.parent)
         if path.is_symlink():
             raise ValueError("Ledger must not be a symlink")
         fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -24,6 +35,9 @@ class Ledger:
         os.close(fd)
         self.db = sqlite3.connect(path, timeout=10)
         self.db.row_factory = sqlite3.Row
+        if self.db.execute("PRAGMA user_version").fetchone()[0] not in (0, 1, 2):
+            self.db.close()
+            raise ValueError("Unsupported database schema; no migration was attempted")
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA foreign_keys=ON")

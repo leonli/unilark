@@ -18,6 +18,8 @@ OWNER = Owner("lark:cli_fixture", "tenant", "ou_owner", "oc_private")
 
 
 class Runtime:
+    from unilark.adapters.sidecars.agy.capabilities import CAPABILITIES as capabilities
+
     def __init__(self):
         self.views = {}
         self.sent = []
@@ -26,7 +28,7 @@ class Runtime:
         self.fail_send = False
         self.fail_stop = False
 
-    async def create(self, session_id):
+    async def create(self, session_id, *, workspace=""):
         self.views[session_id] = SessionView(True, "idle", "-1")
 
     async def view(self, session_id):

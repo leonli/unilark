@@ -14,8 +14,10 @@ from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any
 
-from unilark.adapters.sidecars.views import Busy, SessionView, StepView
+from unilark.adapters.sidecars.views import Answer, Busy, Question, SessionView, StepView
 
+from .capabilities import CAPABILITIES
+from .projects import project_for, read_workspace
 from .transport import ProtocolError, Transport
 
 VERIFIED_BUNDLE_SHA256 = "af2d07d01fd1a81edb320d2618445d3aaa494b0156407a125edde4872c638f3e"
@@ -71,6 +73,8 @@ def public_step(step: dict[str, Any], index: int) -> dict[str, Any]:
 
 
 class AgyClient:
+    capabilities = CAPABILITIES
+
     def __init__(self, transport: Transport, profile: Profile) -> None:
         self.transport = transport
         self.profile = profile
@@ -142,9 +146,15 @@ class AgyClient:
             and all(not v.get("totalLength", 0) for v in (background, queued, commands))
         )
 
-    async def create(self, session_id: str) -> None:
+    async def workspace(self, project_id: str = "") -> str:
+        return await read_workspace(self.transport, project_id or self.profile.project_id)
+
+    async def create(self, session_id: str, *, workspace: str = "") -> None:
         uuid.UUID(session_id)
         await self._before_write()
+        project_id = self.profile.project_id
+        if workspace and workspace != await self.workspace():
+            project_id = await project_for(self.transport, workspace)
         await self.transport.call(
             "StartCascade",
             {
@@ -152,7 +162,7 @@ class AgyClient:
                 "cascadeId": session_id,
                 "requestedModel": self.profile.model,
                 "projectEnvConfig": {
-                    "projectId": self.profile.project_id,
+                    "projectId": project_id,
                     "defaultProjectEnvironment": {},
                 },
             },
@@ -184,6 +194,7 @@ class AgyClient:
                                 }
                             },
                             "notifyUser": {},
+                            "askQuestion": {},
                         },
                         "requestedModel": {"model": self.profile.model},
                         "knowledgeConfig": {},
@@ -270,6 +281,63 @@ class AgyClient:
     async def close(self) -> None:
         await self.transport.close()
 
+    async def answer(
+        self,
+        session_id: str,
+        index: int,
+        answers: tuple[Answer, ...],
+        *,
+        fingerprint: str,
+        cancel: bool = False,
+    ) -> str:
+        steps = await self.steps(session_id)
+        if not 0 <= index < len(steps):
+            raise ValueError("Unknown question")
+        step = steps[index]
+        questions = step.get("requestedInteraction", {}).get("askQuestion", {}).get("questions", [])
+        if (
+            step.get("status") != "CORTEX_STEP_STATUS_WAITING"
+            or not questions
+            or permission_fingerprint(step) != fingerprint
+        ):
+            raise ProtocolError("Question changed or was already answered")
+        if not cancel and len(answers) != len(questions):
+            raise ValueError("Every question requires one answer")
+        responses = []
+        for question, answer in zip(questions, answers, strict=not cancel):
+            allowed = {o["id"] for o in question.get("options", [])}
+            if (
+                set(answer.selected) - allowed
+                or len(set(answer.selected)) != len(answer.selected)
+                or (not question.get("isMultiSelect") and len(answer.selected) > 1)
+                or (not answer.selected and not answer.text.strip())
+            ):
+                raise ValueError("Invalid answer for native question")
+            responses.append(
+                {
+                    **question,
+                    "selectedOptionIds": list(answer.selected),
+                    "writeInResponse": answer.text,
+                }
+            )
+        info = step.get("metadata", {}).get("sourceTrajectoryStepInfo", {})
+        if not info.get("trajectoryId"):
+            raise ProtocolError("Missing question trajectory")
+        await self._before_write()
+        await self.transport.call(
+            "HandleCascadeUserInteraction",
+            {
+                "cascadeId": session_id,
+                "interaction": {
+                    "trajectoryId": info["trajectoryId"],
+                    "stepIndex": info.get("stepIndex", index),
+                    "askQuestion": {"responses": responses, "cancelled": cancel},
+                },
+            },
+        )
+        updated = await self.steps(session_id)
+        return str(updated[index].get("status", "UNKNOWN")) if index < len(updated) else "UNKNOWN"
+
     async def view(self, session_id: str) -> SessionView:
         snapshot = await self.snapshot(session_id)
         raw_steps = await self.steps(session_id)
@@ -317,6 +385,16 @@ class AgyClient:
                     str(permission.get("resource", {}).get("target", ""))
                     if isinstance(permission, dict)
                     else "",
+                    tuple(
+                        Question(
+                            q.get("question", ""),
+                            tuple((str(o["id"]), str(o["text"])) for o in q.get("options", [])),
+                            bool(q.get("isMultiSelect")),
+                        )
+                        for q in raw.get("requestedInteraction", {})
+                        .get("askQuestion", {})
+                        .get("questions", [])
+                    ),
                 )
             )
         idle = self.idle(snapshot) and not any(

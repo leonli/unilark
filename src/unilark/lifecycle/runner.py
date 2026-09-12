@@ -89,7 +89,7 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
         client = load_agy(config)
         channel = LarkChannel(credentials, store.owner(credentials.account))
         redactor = Redactor((credentials.app_secret,))
-        configure(redactor)
+        configure(redactor, state.parent / "gateway-app.log")
         loop = asyncio.get_running_loop()
         owner = store.owner(credentials.account)
         profile = str(client.transport.user_data.resolve())
@@ -102,6 +102,23 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                 for s in store.sessions(owner)
                 if s["profile"] == profile and s["state"] == "ACTIVE"
             ]
+            previous = store.health(owner, profile) or {}
+            offline_since = previous.get("offline_since")
+            last_offline = previous.get("last_offline")
+            if not channel.connected:
+                offline_since = offline_since or time.time()
+            elif offline_since:
+                last_offline = {"from": offline_since, "until": time.time()}
+                offline_since = None
+                hub.notify(
+                    "gateway:connection-restored",
+                    None,
+                    "Lark 连接已恢复",
+                    "正在投递已保存的输出。离线期间的入站补发由平台决定；"
+                    "若消息未收到回执，请先核对 /status，再明确重发。",
+                )
+            elif previous.get("updated_at") and time.time() - previous["updated_at"] > 60:
+                last_offline = {"from": previous["updated_at"], "until": time.time()}
             store.heartbeat(
                 owner,
                 profile,
@@ -115,6 +132,8 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                     "session_count": len(sessions),
                     "lark_errors": channel.errors,
                     "lark_rejections": channel.rejections,
+                    "offline_since": offline_since,
+                    "last_offline": last_offline,
                 },
             )
 
@@ -123,7 +142,13 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                 raise ValueError("Run unilark pair locally before starting the gateway")
             await client.check()
             hub = Hub(
-                store, client, channel, owner, str(client.transport.user_data.resolve()), redactor
+                store,
+                client,
+                channel,
+                owner,
+                str(client.transport.user_data.resolve()),
+                redactor,
+                default_workspace=await client.workspace(),
             )
             hub.report_health = report
             channel.on_message, channel.on_action = hub.accept, hub.action
@@ -157,6 +182,7 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                             owner,
                             profile,
                             {
+                                **(store.health(owner, profile) or {}),
                                 "state": "stopped",
                                 "pid": os.getpid(),
                                 "process_start": process_start(os.getpid()),

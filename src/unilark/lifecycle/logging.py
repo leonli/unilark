@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
+from io import TextIOWrapper
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any
 
 from unilark.policy.redact import Redactor
 
@@ -18,8 +23,22 @@ class SafeFormatter(logging.Formatter):
         return f"{record.levelname} {self.redactor.text(record.getMessage())}"
 
 
-def configure(redactor: Redactor) -> None:
-    handler = logging.StreamHandler()
+class PrivateRotatingHandler(RotatingFileHandler):
+    def _open(self) -> TextIOWrapper[Any]:
+        return open(
+            self.baseFilename,
+            "a",
+            encoding="utf-8",
+            opener=lambda path, flags: os.open(path, flags | os.O_NOFOLLOW, 0o600),
+        )
+
+
+def configure(redactor: Redactor, log: Path | None = None) -> None:
+    handler: logging.Handler = (
+        PrivateRotatingHandler(log, maxBytes=5_000_000, backupCount=3)
+        if log
+        else logging.StreamHandler()
+    )
     handler.setLevel(logging.WARNING)
     handler.setFormatter(SafeFormatter(redactor))
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)

@@ -9,16 +9,20 @@ from pathlib import Path
 from typing import Any
 
 from unilark.conversation.channel import Owner
+from unilark.store.journal import Journal
 from unilark.store.ledger import Ledger
 
 
 class GatewayStore(Ledger):
-    def __init__(self, path: Path) -> None:
-        super().__init__(path)
+    def __init__(self, path: Path, *, readonly: bool = False) -> None:
+        super().__init__(path, readonly=readonly)
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.close()
             raise ValueError("Unsupported database schema; use the matching Unilark version")
+        if readonly:
+            self.journal = Journal(self.db, initialize=False)
+            return
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS owner (account TEXT PRIMARY KEY, data TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS session_meta (
@@ -60,11 +64,19 @@ class GatewayStore(Ledger):
                 owner TEXT NOT NULL, name TEXT NOT NULL, parts INTEGER NOT NULL,
                 PRIMARY KEY(owner,name)
             );
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
         """)
+        self.journal = Journal(self.db)
 
     def accept_session(
-        self, owner: Owner, event: str, profile: str, native: str, action: str, title: str
+        self,
+        owner: Owner,
+        event: str,
+        profile: str,
+        native: str,
+        action: str,
+        title: str,
+        workspace: str = "",
     ) -> str:
         """Binding, selection and intent survive or roll back together."""
         uuid.UUID(native)
@@ -92,6 +104,11 @@ class GatewayStore(Ledger):
                 (owner.key, event, action, binding, ""),
             )
             if inserted.rowcount:
+                if action == "create":
+                    self.db.execute(
+                        "INSERT OR IGNORE INTO session_context VALUES(?,?,?,?)",
+                        (binding, workspace, "", time.time()),
+                    )
                 self.db.execute(
                     "INSERT OR REPLACE INTO selection VALUES(?,?)", (owner.key, binding)
                 )
@@ -218,6 +235,11 @@ class GatewayStore(Ledger):
             )
             if action == "stop" and row.rowcount == 1:
                 self.db.execute("UPDATE bindings SET queue_state='PAUSED' WHERE id=?", (binding,))
+                self.db.execute(
+                    "UPDATE inbox SET status='REJECTED' WHERE binding=? "
+                    "AND action='continue' AND status='QUEUED'",
+                    (binding,),
+                )
         return row.rowcount == 1
 
     def seen(self, owner: Owner, event: str) -> bool:
@@ -229,7 +251,8 @@ class GatewayStore(Ledger):
         )
 
     def accept_input(self, owner: Owner, event: str, binding: str, text: str, kind: str) -> None:
-        self.session(owner, binding)
+        if self.session(owner, binding)["state"] not in ("ACTIVE", "CREATING", "ATTACHING"):
+            raise ValueError("会话已归档或不可用；先显式恢复会话。")
         if kind not in ("input", "steer") or not text.strip():
             raise ValueError("Invalid input")
         with self.db:
@@ -274,7 +297,7 @@ class GatewayStore(Ledger):
         return (
             self.db.execute(
                 "SELECT 1 FROM inbox WHERE binding=? AND status IN ('UNKNOWN','SUBMITTING') "
-                "AND action IN ('create','attach','stop','resolve')",
+                "AND action IN ('create','attach','stop','resolve','answer')",
                 (binding,),
             ).fetchone()
             is not None
@@ -295,7 +318,7 @@ class GatewayStore(Ledger):
             dict(r)
             for r in self.db.execute(
                 "SELECT * FROM inbox WHERE owner=? AND status='QUEUED' "
-                "ORDER BY (action IN ('stop','resolve')) DESC,rowid",
+                "ORDER BY (action IN ('stop','resolve','answer')) DESC,rowid",
                 (owner.key,),
             )
         ]
@@ -353,7 +376,8 @@ class GatewayStore(Ledger):
             dict(r)
             for r in self.db.execute(
                 """SELECT * FROM cards WHERE owner=? AND
-            revision>delivered AND state NOT IN ('UNKNOWN','BLOCKED','SENDING') AND retry_at<=?
+            revision>delivered AND state NOT IN ('UNKNOWN','BLOCKED','SENDING','DISMISSED')
+            AND retry_at<=?
             ORDER BY EXISTS(SELECT 1 FROM interactions i WHERE i.card=cards.id
                             AND i.kind='permission' AND i.status='OPEN') DESC, rowid LIMIT 30""",
                 (owner.key, time.time()),
@@ -436,8 +460,12 @@ class GatewayStore(Ledger):
                 return False
             if row["kind"] == "stop" and decision != "stop":
                 return False
+            if row["kind"] == "question" and not (
+                decision.startswith("answer:") or decision == "cancel"
+            ):
+                return False
             self.db.execute("UPDATE interactions SET status='CLAIMED' WHERE token=?", (token,))
-            action = "resolve" if row["kind"] == "permission" else "stop"
+            action = {"permission": "resolve", "question": "answer", "stop": "stop"}[row["kind"]]
             self.db.execute(
                 """INSERT OR IGNORE INTO inbox(owner,event,action,binding,body)
                 VALUES(?,?,?,?,?)""",
@@ -460,13 +488,18 @@ class GatewayStore(Ledger):
                 self.db.execute(
                     "UPDATE bindings SET queue_state='PAUSED' WHERE id=?", (row["binding"],)
                 )
+                self.db.execute(
+                    "UPDATE inbox SET status='REJECTED' WHERE binding=? "
+                    "AND action='continue' AND status='QUEUED'",
+                    (row["binding"],),
+                )
         return True
 
     def expire_permission(self, owner: Owner, interaction: dict[str, Any]) -> None:
         with self.db:
             changed = self.db.execute(
                 "UPDATE interactions SET status='EXPIRED' WHERE token=? AND owner=? "
-                "AND kind='permission' AND status='OPEN' AND expires<=?",
+                "AND kind IN ('permission','question') AND status='OPEN' AND expires<=?",
                 (interaction["token"], owner.key, time.time()),
             )
             if changed.rowcount:
@@ -476,13 +509,15 @@ class GatewayStore(Ledger):
                     (
                         owner.key,
                         "expiry:" + interaction["token"],
-                        "resolve",
+                        "answer" if interaction["kind"] == "question" else "resolve",
                         interaction["binding"],
                         json.dumps(
                             {
                                 "fingerprint": interaction["fingerprint"],
                                 "step": interaction["step"],
-                                "decision": "deny",
+                                "decision": "cancel"
+                                if interaction["kind"] == "question"
+                                else "deny",
                             }
                         ),
                     ),
@@ -506,3 +541,125 @@ class GatewayStore(Ledger):
                 "THEN 'UNKNOWN' ELSE 'READY' END "
                 "WHERE state='SENDING'"
             )
+
+    def archive(self, owner: Owner, binding: str) -> None:
+        session = self.session(owner, binding)
+        if session["state"] != "ACTIVE" or self.blocked(binding):
+            raise ValueError("会话不可归档；先处理待确认操作。")
+        with self.db:
+            if self.db.execute(
+                "SELECT 1 FROM operations WHERE binding_id=? AND state IN "
+                "('QUEUED','SUBMITTING','UNKNOWN')",
+                (binding,),
+            ).fetchone():
+                raise ValueError("会话仍有排队或待确认输入，先处理这些输入。")
+            self.db.execute("UPDATE session_meta SET state='ARCHIVED' WHERE binding=?", (binding,))
+            self.db.execute("UPDATE bindings SET queue_state='PAUSED' WHERE id=?", (binding,))
+            self.db.execute(
+                "DELETE FROM selection WHERE owner=? AND binding=?", (owner.key, binding)
+            )
+            self.db.execute(
+                "UPDATE interactions SET status='CLOSED' WHERE binding=? AND status='OPEN'",
+                (binding,),
+            )
+
+    def acknowledge_unknown(self, owner: Owner, entity: str, reference: str) -> None:
+        """Operator accepts uncertainty; never claims that execution did not happen."""
+        with self.db:
+            if entity == "input":
+                row = self.db.execute(
+                    "SELECT binding_id FROM operations WHERE request_id=? AND source_scope=? "
+                    "AND state='UNKNOWN'",
+                    (reference, owner.key),
+                ).fetchone()
+                if not row:
+                    raise ValueError("No UNKNOWN input for this owner")
+                binding = str(row[0])
+                self.db.execute(
+                    "UPDATE operations SET state='DISMISSED' WHERE request_id=?", (reference,)
+                )
+            elif entity == "control":
+                row = self.db.execute(
+                    "SELECT binding,action FROM inbox WHERE event=? AND owner=? "
+                    "AND status='UNKNOWN'",
+                    (reference, owner.key),
+                ).fetchone()
+                if not row:
+                    raise ValueError("No UNKNOWN control for this owner")
+                binding = str(row[0])
+                self.db.execute(
+                    "UPDATE inbox SET status='DISMISSED' WHERE event=? AND owner=?",
+                    (reference, owner.key),
+                )
+                if row[1] in ("create", "attach"):
+                    self.db.execute(
+                        "UPDATE session_meta SET state='UNAVAILABLE' WHERE binding=?", (binding,)
+                    )
+            elif entity == "card":
+                row = self.db.execute(
+                    "SELECT binding FROM cards WHERE id=? AND owner=? AND state='UNKNOWN'",
+                    (reference, owner.key),
+                ).fetchone()
+                if not row:
+                    raise ValueError("No UNKNOWN card for this owner")
+                binding = str(row[0] or "")
+                self.db.execute("UPDATE cards SET state='DISMISSED' WHERE id=?", (reference,))
+            else:
+                raise ValueError("Invalid recovery entity")
+            self.db.execute("UPDATE bindings SET queue_state='PAUSED' WHERE id=?", (binding,))
+            self.journal.decision(
+                owner.key, entity, reference, "acknowledged_possible_execution_or_delivery"
+            )
+
+    def retry_delivery(self, owner: Owner, reference: str) -> None:
+        with self.db:
+            row = self.db.execute(
+                "UPDATE cards SET state='READY',attempts=0,retry_at=0 WHERE id=? AND owner=? "
+                "AND state='BLOCKED' AND message_id IS NOT NULL",
+                (reference, owner.key),
+            )
+            if row.rowcount != 1:
+                raise ValueError("Only a BLOCKED update with a known message ID may be retried")
+            self.journal.decision(owner.key, "card", reference, "retry_known_message_update")
+
+    def quoted_question(self, owner: Owner, message_id: str) -> dict[str, Any] | None:
+        row = self.db.execute(
+            "SELECT i.* FROM interactions i JOIN cards c ON i.card=c.id "
+            "WHERE c.message_id=? AND i.owner=? AND i.kind='question' "
+            "ORDER BY i.rowid DESC LIMIT 1",
+            (message_id, owner.key),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def answer_text(self, owner: Owner, message_id: str, event: str, text: str) -> bool:
+        interaction = self.quoted_question(owner, message_id)
+        if interaction is None:
+            return False
+        with self.db:
+            if self.seen(owner, event):
+                return True
+            changed = self.db.execute(
+                "UPDATE interactions SET status='CLAIMED' WHERE token=? AND owner=? "
+                "AND status='OPEN' AND expires>?",
+                (interaction["token"], owner.key, time.time()),
+            )
+            if changed.rowcount != 1:
+                raise ValueError("该问题已处理或到期，回答未作为新任务执行。")
+            self.db.execute(
+                "INSERT INTO inbox(owner,event,action,binding,body) VALUES(?,?,?,?,?)",
+                (
+                    owner.key,
+                    event,
+                    "answer",
+                    interaction["binding"],
+                    json.dumps(
+                        {
+                            "step": interaction["step"],
+                            "fingerprint": interaction["fingerprint"],
+                            "decision": "text",
+                            "text": text,
+                        }
+                    ),
+                ),
+            )
+        return True

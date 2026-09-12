@@ -17,12 +17,14 @@ from typing import Any
 
 import httpx
 
+from unilark.adapters.sidecars.views import Rejected
+
 
 class ProtocolError(Exception):
     """A reply cannot prove that the requested operation succeeded."""
 
 
-class RpcError(Exception):
+class RpcError(Rejected):
     """An explicit runtime rejection; do not include untrusted server text."""
 
     def __init__(self, status: str) -> None:
