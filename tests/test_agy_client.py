@@ -42,6 +42,15 @@ def test_projection_excludes_raw_thinking_and_preserves_first_step() -> None:
     assert result["index"] == 0
     assert result["text"] == "Visible answer"
     assert "private" not in repr(result)
+    command = public_step(
+        {
+            "metadata": {"toolCall": {"name": "run_command", "thinkingSignature": "private"}},
+            "runCommand": {"commandLine": "printf hello", "combinedOutput": "private-output"},
+        },
+        1,
+    )
+    assert command["command"] == "printf hello"
+    assert "private" not in repr(command)
 
 
 async def test_changed_bundle_blocks_write_before_any_rpc(monkeypatch: pytest.MonkeyPatch) -> None:

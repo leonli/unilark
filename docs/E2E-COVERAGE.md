@@ -1,7 +1,30 @@
 # 用户手册与 E2E 测试对照
 
 日期：2026-09-13。本文主体保留 0.0.2 的历史审计（代码基线 `cb4524d`）；
-当前[用户手册](USER-GUIDE.md) 已更新为 0.0.5，新覆盖和仍有的缺口以下面的增量表为准。
+当前[用户手册](USER-GUIDE.md) 已更新为 0.0.6，新覆盖和仍有的缺口以下面的增量表为准。
+
+## 0.0.6 群聊过程收敛
+
+共 162 项：144 本地、4 浏览器、9 real_agy、5 real_lark。
+本次 144 本地完整回归、真实 AGY 群模式 1 项、真实 Lark 无标题群卡 1 项通过。
+Ruff、格式、mypy 55 源文件及 pip check 通过；未把未复跑的旧真机/浏览器项计作本次通过。
+
+| 手册 | 测试 | 实际边界 |
+|---|---|---|
+| U01/U24 正常对话 | `test_many_tool_updates_use_one_progress_then_one_final_message` | 19 次思考/命令循环仅创建一条进度消息，最终另发一条无标题答复；命令脱敏，不投影空回复和计划 |
+| U06 排队 | `test_queue_is_compact_and_next_turn_does_not_overwrite_first_answer` | 排队不另发回执，下一轮不覆盖上一答复 |
+| U15/U24 重启/长结果 | `test_restart_reuses_live_card_and_long_result_only_adds_result_parts` | 重建 Hub 复用原进度卡，仅最终长正文分条，重复 tick 不重复发送 |
+| U09 停止 | `test_stop_control_belongs_to_live_turn_and_is_not_reported_as_success`、`test_old_stop_cannot_interrupt_next_turn` | 正确原生目标、队列暂停、停止确认原卡展示、旧按钮不能停止下一轮 |
+| U10/U11 决策 | `test_required_interaction_stays_actionable_without_receipt_noise[False/True]` | 审批/单选真实 Hub 路由，决定后没有额外回执；执行端为替身 |
+| U01 失败 | `test_completed_tool_plan_is_not_misrepresented_as_final_answer` | 工具失败后不把“将写文档”的中间计划当最终结果 |
+| U21 升级 | `test_upgrade_preserves_legacy_history_without_replaying_it` | 模拟 0.0.5 历史和状态卡，新版只发送新轮正文 |
+| U01 真实原生链路 | `test_real_hub_projects_response_and_recovers_binding[True]` | 真实 AGY 最终答复、固定群目标、重启输入去重；通道为 Recorder |
+| U24 真实群 API | `test_real_private_group_members_markdown_mermaid_and_update[True]` | 无标题状态/答复、Mermaid 图片、发送/更新同一 ID、群归属；临时消息撤回 |
+
+本地旅程位于 `tests/test_quiet_chat.py`。无真实手机入站、推送通知或视觉自动验收；JSON 2.0 GET 不返回完整正文。
+本机文件附件自动发送尚未实现，也未作为测试通过项。既有浏览器渲染证据沿用，渲染器未修改。
+0.0.6 已部署；隔离安装/副本迁移和生产升级均完成，5 个绑定、63 个消息 ID 保留，升级新增消息为 0。
+部署后的 doctor API 检查返回 0，服务 running/connected。下一轮真人群聊的手机表现仍待实际使用观察。
 
 ## 0.0.5 独立会话群增量
 

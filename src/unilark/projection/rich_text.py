@@ -112,7 +112,9 @@ def blocks(text: str) -> list[dict[str, Any]]:
     return result or [markdown("…")]
 
 
-def reply_cards(title: str, text: str, label: str) -> list[dict[str, Any]]:
+def reply_cards(
+    title: str, text: str, label: str, *, minimal: bool = False
+) -> list[dict[str, Any]]:
     groups: list[list[dict[str, Any]]] = []
     group: list[dict[str, Any]] = []
     size = 0
@@ -126,7 +128,7 @@ def reply_cards(title: str, text: str, label: str) -> list[dict[str, Any]]:
         size += cost
     if group:
         groups.append(group)
-    return [
+    cards: list[dict[str, Any]] = [
         {
             "schema": "2.0",
             "config": {"wide_screen_mode": True},
@@ -156,3 +158,8 @@ def reply_cards(title: str, text: str, label: str) -> list[dict[str, Any]]:
         }
         for i, group in enumerate(groups)
     ]
+    if minimal:
+        for payload, group in zip(cards, groups, strict=True):
+            payload.pop("header")
+            payload["body"]["elements"] = group
+    return cards

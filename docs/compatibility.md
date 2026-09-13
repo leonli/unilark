@@ -3,6 +3,12 @@
 PRD 12.4 / 15.3：每次兼容版本升级更新本文件。发布物对 OS/架构、Unilark、
 Adapter、sidecar runtime 和数据库 schema 的组合发布兼容矩阵。
 
+## 0.0.6 聊天投影兼容
+
+沿用 schema 3 和全部运行依赖，新增可选的 `chat_layouts`、`chat_turns` 表记录历史基线和每轮消息身份。
+升级在原生空闲点进行，保留既有消息，不重放旧群历史；不会修改会话目标、凭据或 AGY。
+0.0.5 能读写同一 schema，但回退会恢复旧消息流体验；0.0.4 及更早版本仍不兼容。
+
 ## 0.0.5 数据库兼容变化
 
 0.0.5 使用 schema 3，支持从 1/2 迁移，保留 owner、bindings、原生 ID、selection、operations 和旧消息 ID。

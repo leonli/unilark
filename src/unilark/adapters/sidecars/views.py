@@ -41,6 +41,7 @@ class StepView:
     fingerprint: str = ""
     resource: str = ""
     questions: tuple[Question, ...] = ()
+    command: str = ""
 
 
 @dataclass(frozen=True)

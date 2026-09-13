@@ -57,6 +57,12 @@ async def test_real_hub_projects_response_and_recovers_binding(tmp_path, room_mo
     hub = Hub(store, client, recorder, owner, profile, Redactor(), enable_rooms=room_mode)
     session = None
     marker = "M1-HUB-" + uuid.uuid4().hex[:12]
+
+    def is_reply(payload):
+        if room_mode:
+            return payload.get("schema") == "2.0" and "header" not in payload
+        return "AGY 回复" in payload.get("header", {}).get("title", {}).get("content", "")
+
     try:
         await hub.accept(Message(owner, "new", "/new hub smoke", time.time()))
         await hub.tick()
@@ -73,15 +79,11 @@ async def test_real_hub_projects_response_and_recovers_binding(tmp_path, room_mo
         deadline = asyncio.get_running_loop().time() + 60
         while asyncio.get_running_loop().time() < deadline:
             await hub.tick()
-            projected = [
-                v for v in recorder.cards.values() if "AGY 回复" in v["header"]["title"]["content"]
-            ]
+            projected = [v for v in recorder.cards.values() if is_reply(v)]
             if marker in json.dumps(projected) and (await client.view(session["native_id"])).idle:
                 assert all(p["schema"] == "2.0" for p in projected)
                 assert all(
-                    recorder.chats[k] == chat
-                    for k, v in recorder.cards.items()
-                    if "AGY 回复" in v["header"]["title"]["content"]
+                    recorder.chats[k] == chat for k, v in recorder.cards.items() if is_reply(v)
                 )
                 break
             await asyncio.sleep(0.5)

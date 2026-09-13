@@ -69,6 +69,9 @@ def public_step(step: dict[str, Any], index: int) -> dict[str, Any]:
     tool = step.get("metadata", {}).get("toolCall")
     if tool:
         result["tool_name"] = tool.get("name", "")
+        command = step.get("runCommand", {}).get("commandLine")
+        if tool.get("name") == "run_command" and isinstance(command, str):
+            result["command"] = command
     return result
 
 
@@ -395,6 +398,7 @@ class AgyClient:
                         .get("askQuestion", {})
                         .get("questions", [])
                     ),
+                    command=public.get("command", ""),
                 )
             )
         idle = self.idle(snapshot) and not any(

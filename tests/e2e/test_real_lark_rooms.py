@@ -35,7 +35,8 @@ pytestmark = [
 ]
 
 
-async def test_real_private_group_members_markdown_mermaid_and_update():
+@pytest.mark.parametrize("minimal", [False, True])
+async def test_real_private_group_members_markdown_mermaid_and_update(minimal):
     credentials = load_credentials(Path(os.environ["UNILARK_REAL_LARK_CREDENTIALS"]))
     store = GatewayStore(Path(os.environ["UNILARK_REAL_LARK_STATE"]), readonly=True)
     try:
@@ -57,9 +58,10 @@ async def test_real_private_group_members_markdown_mermaid_and_update():
             return destination == chat and await api.verify(chat, request)
 
         channel.group_guard = guard
-        initial = await channel.deliver(
-            chat, card("群验收 · 将自动清理", "无需操作"), str(uuid.uuid4())
-        )
+        progress = card("群验收 · 将自动清理", "正在思考…")
+        if minimal:
+            progress.pop("header")
+        initial = await channel.deliver(chat, progress, str(uuid.uuid4()))
         assert initial.state == "SENT" and initial.message_id
         messages.append(initial.message_id)
         payload = reply_cards(
@@ -83,6 +85,7 @@ flowchart LR
 ```
 """,
             "自动接口验收，无需回复",
+            minimal=minimal,
         )[0]
         prepared = await channel.rich_media.prepare(payload)
         assert any(e["tag"] == "img" for e in prepared["body"]["elements"])
@@ -96,7 +99,8 @@ flowchart LR
             item = data["items"][0]
             assert item["chat_id"] == chat and item["msg_type"] == "interactive"
             # JSON2 GET is a compatibility representation, not the rendered Markdown body.
-            assert "群验收" in item["body"]["content"]
+            if not minimal:
+                assert "群验收" in item["body"]["content"]
     finally:
         try:
             for message in messages:

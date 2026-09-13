@@ -1,19 +1,19 @@
 # 安装与程序维护
 
-适用于 0.0.5 实验版。只实测 Linux x86_64 / Python 3.12，要求主机提供 Python 与 venv。
+适用于 0.0.6 实验版。只实测 Linux x86_64 / Python 3.12，要求主机提供 Python 与 venv。
 隔离的虚拟环境与离线 wheels 安装在版本目录；不内嵌 Python 解释器、不自动安装 AGY。
 安装前使用同目录的 `SHA256SUMS` 验证压缩包。校验保证内容完整性，不是发行方签名。
 
 ## 安装布局
 
 ```bash
-python3 unilark-0.0.5-linux-x86_64/install.py
+python3 unilark-0.0.6-linux-x86_64/install.py
 # 自定义位置（目录需由本人拥有且 mode 0700）：
-python3 unilark-0.0.5-linux-x86_64/install.py \
+python3 unilark-0.0.6-linux-x86_64/install.py \
   --prefix /private/path/unilark --bin-dir /private/path/bin
 ```
 
-默认程序位于 `~/.local/share/unilark/releases/0.0.5/`；`current` 是激活链接。
+默认程序位于 `~/.local/share/unilark/releases/0.0.6/`；`current` 是激活链接。
 `~/.local/bin/unilark` 是稳定入口。已有安装或同名入口不会被覆盖，升级使用下方专用命令。
 发行包包含 `requirements.lock`、`sbom.cdx.json`、每文件哈希和操作文档。
 
@@ -72,7 +72,7 @@ unilark --config /private/path/agy.toml acceptance verify lark_permission_and_st
 
 当前租户对 JSON 2.0 消息的 GET 回读只返回兼容占位内容，不含实际 Markdown 正文。
 旧 CLI 的正文匹配检查不能新记录富文本验收通过；已有证据保留，API 接受不能替代手机视觉验收。
-新版测试范围见 [0.0.5 说明](RELEASE-0.0.5.md)。
+新版测试范围见 [0.0.6 说明](RELEASE-0.0.6.md)。
 
 ## 后台交接
 
@@ -109,7 +109,7 @@ unilark --config /private/path/agy.toml uninstall --system
 
 用户服务省略 `--system`；自定义 prefix 加 `--prefix`。升级需要原生任务空闲，且没有 QUEUED/SUBMITTING/UNKNOWN 输入或控制。
 流程会核验包、停止唯一网关、重查安全点、生成一致性备份，在新副本验证迁移和原生配置，然后切换程序并检查服务健康。
-0.0.5 接受 schema 1/2/3 升级输入，产生 schema 3；doctor 和只读列表不会迁移数据库。
+0.0.6 接受 schema 1/2/3 升级输入，产生 schema 3；doctor 和只读列表不会迁移数据库。
 启用前须完成独立群权限与菜单配置，见 LARK-SETUP.md。
 
 回退只切换兼容程序，**绝不拿旧备份覆盖升级后接收的数据**。0.0.4 及以前不认识 schema 3，生产库迁移后不能直接回退到这些版本。

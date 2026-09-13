@@ -17,6 +17,7 @@ from unilark.conversation.channel import Action, Channel, Message, Owner
 from unilark.conversation.panels import Panels
 from unilark.conversation.questions import parse as parse_answers
 from unilark.conversation.rooms import Rooms
+from unilark.conversation.turns import Turns
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card, chunks
 from unilark.projection.rich_text import reply_cards
@@ -50,6 +51,7 @@ class Hub:
         self.report_health: Callable[[], None] | None = None
         self.default_workspace = default_workspace
         self.room_mode = enable_rooms
+        self.turns = Turns(store, owner, redactor, self.save_parts)
         self.rooms = (
             Rooms(store, owner, getattr(channel, "room_api", None)) if enable_rooms else None
         )
@@ -79,9 +81,19 @@ class Hub:
     def session_label(self, session: dict[str, Any]) -> str:
         return self.panels.label(session)
 
-    def notify(self, key: str, binding: str | None, title: str, text: str) -> None:
+    def notify(
+        self, key: str, binding: str | None, title: str, text: str, *, routine: bool = False
+    ) -> None:
+        chat = (
+            self.store.rooms.event_chat(self.owner, key[6:])
+            if key.startswith("reply:")
+            else self.store.rooms.output_chat(self.owner, binding)
+        )
+        in_room = self.room_mode and chat != self.owner.chat
+        if routine and in_room:
+            return
         safe = self.redactor.text(text)
-        if binding:
+        if binding and not in_room:
             label = self.session_label(self.store.session(self.owner, binding))
             if label not in safe:
                 safe += "\n\n" + label
@@ -191,6 +203,7 @@ class Hub:
                         binding,
                         "回答已保存",
                         "将核对原问题后提交；不会启动新的任务。",
+                        routine=True,
                     )
                     return
             command, _, body = text.partition(" ")
@@ -332,7 +345,11 @@ class Hub:
                         raise ValueError("/steer 后需要补充内容。")
                     self.store.accept_input(self.owner, event, binding, body, command)
                     self.notify(
-                        "reply:" + event, binding, "输入已保存", "已进入本地队列；尚未开始执行。"
+                        "reply:" + event,
+                        binding,
+                        "输入已保存",
+                        "已进入本地队列；尚未开始执行。",
+                        routine=True,
                     )
                 else:
                     if command == "stop":
@@ -345,6 +362,7 @@ class Hub:
                         "停止意图已保存，队列已暂停；等待 AGY 确认。"
                         if command == "stop"
                         else "正在检查状态后继续本地队列。",
+                        routine=True,
                     )
             else:
                 self.store.receive(self.owner, event, "noop", binding, "")
@@ -486,7 +504,13 @@ class Hub:
                         if self.store.blocked(binding):
                             raise ValueError("先处理状态待确认的控制操作。")
                         self.store.resume(binding)
-                        self.notify("reply:" + event, binding, "队列已继续", "空闲后提交下一项。")
+                        self.notify(
+                            "reply:" + event,
+                            binding,
+                            "队列已继续",
+                            "空闲后提交下一项。",
+                            routine=True,
+                        )
                     elif action == "stop":
                         self.require(Capability.INTERRUPT)
                         before_stop = await self.runtime.view(native)
@@ -518,6 +542,7 @@ class Hub:
                             binding,
                             "已确认空闲",
                             "停止操作已确认，队列保持暂停。",
+                            routine=True,
                         )
                     elif action == "answer":
                         self.require(Capability.INTERACTION)
@@ -557,6 +582,7 @@ class Hub:
                             binding,
                             "已取消问题" if cancel else "回答已提交",
                             "后续结果以 AGY 当前状态为准。",
+                            routine=True,
                         )
                     elif action == "resolve":
                         self.require(Capability.INTERACTION)
@@ -585,6 +611,7 @@ class Hub:
                             binding,
                             "决议已提交",
                             f"当前步骤状态：{observed}。执行结果以 AGY 后续状态为准。",
+                            routine=True,
                         )
                 self.store.request_state(self.owner, event, "DONE")
             except Exception as error:
@@ -652,6 +679,9 @@ class Hub:
 
     def project(self, session: dict[str, Any], view: SessionView) -> None:
         binding = session["id"]
+        room = self.store.rooms.get(self.owner, binding) if self.room_mode else None
+        if room and room["chat"]:
+            self.turns.baseline(binding, room)
         observation = self.store.journal.observe(binding, view)
         label = self.session_label(session)
         own = {
@@ -682,15 +712,22 @@ class Hub:
             (binding, time.time()),
         ).fetchall():
             self.store.expire_permission(self.owner, dict(pending))
-        room = self.store.rooms.get(self.owner, binding) if self.room_mode else None
         if room and room["status"] != "READY":
             return
+        if room:
+            self.turns.project(
+                session,
+                room,
+                view,
+                can_stop=self.capabilities.level(Capability.INTERRUPT)
+                != CapabilityLevel.UNSUPPORTED,
+            )
         prefix = "room:" + room["chat"] + ":" if room else ""
         for step in view.steps:
             if room and step.index <= room["baseline"]:
                 continue
-            if room and step.kind == "tool" and not (step.permission or step.questions):
-                continue  # Routine tool activity is represented by the single status card.
+            if room and not (step.permission or step.questions):
+                continue
             matched = [rid for rid in step.operation_ids if rid in own]
             if step.kind == "user" and matched:
                 continue  # Its receipt already appears in Lark.
@@ -777,6 +814,8 @@ class Hub:
                 question_text += "\n\n" + label
                 payloads = [card("AGY 等待回答", self.redactor.text(question_text)[:3300], buttons)]
             self.save_parts(key, binding, payloads)
+        if room:
+            return
         state_key = prefix + "state:" + binding
         context = label + "\n本地队列：" + session["queue_state"]
         if observation.get("gap_since"):
@@ -814,6 +853,9 @@ class Hub:
                 self.views[session["id"]] = None
                 self.store.journal.unavailable(session["id"])
                 room = self.store.rooms.get(self.owner, session["id"])
+                if room:
+                    self.turns.unavailable(session["id"])
+                    continue
                 self.notify(
                     ("room:" + room["chat"] + ":" if room and room["chat"] else "")
                     + "state:"
@@ -896,6 +938,7 @@ class Hub:
                     if op["state"] == "DISMISSED"
                     else ""
                 ),
+                routine=True,
             )
             if op["state"] != "QUEUED" or uncertain:
                 continue
@@ -948,6 +991,7 @@ class Hub:
                 binding,
                 "输入 · " + updated["state"],
                 f"请求 {op['request_id']}\n{self.redactor.text(op['content'])}",
+                routine=True,
             )
             break  # Refresh runtime state before submitting any further input.
         self.panels.render()

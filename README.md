@@ -1,10 +1,11 @@
-# Unilark 0.0.5
+# Unilark 0.0.6
 
 Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 Linux 实例完成真实收发、审批、停止、桌面接力和故障恢复验证。AGY 保留原生登录与历史，网关持久化身份、绑定、队列和卡片投递。
 
 ## 当前能力
 
 - 一个会话对应一个独立私有群；在 Lark 聊天列表切换、搜索、手动置顶。
+- 群聊每轮一张动态进度卡：思考、命令预览、排队原位更新；最终答复作为无标题富文本消息发出。
 - 私聊菜单：新建会话、打开会话、设置；命令 `/new-form`、`/list`、`/settings` 也可进入。
 - 新建标题、项目及可选首条任务表单；`/status` 会话详情、查看/撤销队列、停止/继续、归档/恢复按钮。
 - 会话独立色块、状态标签与分割线；回复支持 Markdown 标题/表格/代码块，Mermaid 本机转图片。
@@ -19,8 +20,8 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 日常操作见 [用户使用手册](docs/USER-GUIDE.md)；逐项验证范围与后续开发顺序见
 [手册与 E2E 对照](docs/E2E-COVERAGE.md)。
 首轮交互改进见 [0.0.3 说明](docs/RELEASE-0.0.3.md)；完整后续方向见 [Rich UE 提案](docs/UE-PROPOSAL.md)。
-本版独立会话群及启用条件见 [0.0.5 说明](docs/RELEASE-0.0.5.md)。
-现有环境需补成员读取、群内免 @ 消息权限并发布菜单，见 [配置说明](docs/LARK-SETUP.md#005-独立会话群配置)。
+本版聊天交互见 [0.0.6 说明](docs/RELEASE-0.0.6.md)；独立会话群启用条件见 [0.0.5 说明](docs/RELEASE-0.0.5.md)。
+已有 0.0.5 配置无需调整；首次启用群聊见 [配置说明](docs/LARK-SETUP.md#005-独立会话群配置)。
 输入时 `/` 自动补全与真正并行执行尚未开放；同时执行上限仍为 1。
 
 ## 首次安装
@@ -30,8 +31,8 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf unilark-0.0.5-linux-x86_64.tar.gz
-python3 unilark-0.0.5-linux-x86_64/install.py
+tar -xzf unilark-0.0.6-linux-x86_64.tar.gz
+python3 unilark-0.0.6-linux-x86_64/install.py
 ~/.local/share/unilark/current/.venv/bin/python -m playwright install chromium --only-shell
 ~/.local/bin/unilark --config /private/path/agy.toml setup
 ```
