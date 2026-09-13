@@ -1,7 +1,12 @@
 # 本机运行维护
 
 2026-09-12：本机 Lark 配置、owner 配对和 AGY 登录均已完成。不要重配 owner 或另启 WebSocket 消费者。
-当前网关为本地安装的 0.0.2；程序入口 `~/.local/bin/unilark`，发行目录 `~/.local/share/unilark/`。
+当前网关为本地安装的 **0.0.3**（2026-09-13 已升级）；程序入口 `~/.local/bin/unilark`，发行目录 `~/.local/share/unilark/`。
+
+手机入口：`/list` 会话面板、`/` 命令卡、`/status` 当前会话及队列、`/tasks` 全部任务。
+原会话、选择、输入和已知消息编号均已核对保留。新版保持 schema 2，新增可选 UI 表；
+升级前备份 `backups/before-0.0.3-1789277533050706915.db`，兼容回退目标为 0.0.2。
+交互说明和真机停止边界见 [0.0.3 说明](RELEASE-0.0.3.md)。
 
 ```bash
 ~/.local/bin/unilark --config /home/lileon/doc/unilark/spike/runtime/unilark.toml doctor
