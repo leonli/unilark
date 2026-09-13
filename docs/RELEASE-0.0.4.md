@@ -35,3 +35,15 @@ JSON 2.0 消息 GET 返回兼容占位内容，无法回读 Markdown 正文或�
 随包包含 Mermaid 11.17.2、MIT 许可证和来源校验；npm tarball SHA-512 与脚本 SHA-256 已核验。
 运行依赖增加 markdown-it-py 4.2.0、Playwright 1.62.0。Chromium 需要单独安装，不在离线包内。
 数据库保持 schema 2，使用原有备份、候选验证和健康门禁升级。可兼容回退前版 0.0.3，保留业务数据。
+
+## 本机部署结果
+
+已从 0.0.3 升级到 0.0.4，实现提交 `38ae26b`。doctor --check-api 返回 0，Lark connected，未知操作 0。
+原 owner、3 个绑定、当前选择、输入记录、33 个已有消息 ID 全部保留；新版回复投递完成。
+安装后的 wheel 已实际生成中文 PNG，不依赖开发目录。
+40 个 manifest 文件及展开的 wheels 已核验哈希和精确凭据扫描，19 项运行依赖随包提供。
+
+发行包 SHA-256：`e9a2993ac51218a7046fc938f4b2578df1234cce3c7e5464e5bdd511c48fa6df`。
+备份：`~/.unilark/backups/before-0.0.4-1789280950263753362.db`。
+私有证据：`spike/evidence/ue2-before.json`、`ue2-deployed.json`。
+本节为部署后记录，不回写已生成的发行包。

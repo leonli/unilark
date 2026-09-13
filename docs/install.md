@@ -70,6 +70,10 @@ unilark --config /private/path/agy.toml acceptance verify lark_permission_and_st
 单纯空闲时 `/stop`、旧版没有观测证据的控制记录、未送达卡片都不能新通过此检查。
 前版独立真机验收记录仍作为历史证据保留。
 
+当前租户对 JSON 2.0 消息的 GET 回读只返回兼容占位内容，不含实际 Markdown 正文。
+旧 CLI 的正文匹配检查不能新记录富文本验收通过；已有证据保留，API 接受不能替代手机视觉验收。
+新版测试范围见 [0.0.4 说明](RELEASE-0.0.4.md)。
+
 ## 后台交接
 
 结束前台 `run` 后：
