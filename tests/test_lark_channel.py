@@ -166,6 +166,48 @@ async def test_real_sdk_card_envelope_keeps_tenant_and_origin(channel):
     )
 
 
+async def test_real_sdk_form_reaches_hub_and_creates_one_named_session(channel, tmp_path):
+    from test_gateway import Channel, Runtime
+    from test_panels import click, rendered
+    from unilark.conversation.hub import Hub
+    from unilark.policy.redact import Redactor
+
+    store = GatewayStore(tmp_path / "form.db")
+    store.set_owner(OWNER)
+    hub = Hub(store, Runtime(), Channel(), OWNER, "profile", Redactor())
+    channel.on_action = hub.action
+    try:
+        hub.panels.open("form", "new")
+        await hub.tick()
+        form = rendered(store, mode="new")
+        action = click(store, form, "创建并切换")
+        data = {
+            "schema": "2.0",
+            "header": {
+                "app_id": CREDS.app_id,
+                "tenant_key": OWNER.tenant,
+                "event_id": "form-submission",
+                "event_type": "card.action.trigger",
+            },
+            "event": {
+                "operator": {"open_id": OWNER.user, "tenant_key": OWNER.tenant},
+                "context": {"open_chat_id": OWNER.chat, "open_message_id": form["message_id"]},
+                "action": {
+                    "tag": "button",
+                    "value": {"token": action.token, "decision": "ui"},
+                    "form_value": {"title": "来自真实 SDK 的表单值"},
+                },
+            },
+        }
+        await dispatch(channel, data, action=True)
+        await dispatch(channel, data, action=True)
+        await hub.tick()
+        await hub.tick()
+        assert [s["title"] for s in store.sessions(OWNER)] == ["来自真实 SDK 的表单值"]
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize(
     ("code", "retryable", "message_id", "expected"),
     [

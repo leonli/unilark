@@ -1,6 +1,29 @@
 # 用户手册与 E2E 测试对照
 
-日期：2026-09-13。对象：[0.0.2 用户使用手册](USER-GUIDE.md) 的 U01–U23；产品代码基线 `cb4524d`。
+日期：2026-09-13。本文主体保留 0.0.2 的历史审计（代码基线 `cb4524d`）；
+当前[用户手册](USER-GUIDE.md) 已更新为 0.0.3，新覆盖和仍有的缺口以下面的增量表为准。
+
+## 0.0.3 交互改进增量
+
+新增 9 项本地用户流程检查，以及 1 项 `real_lark` 真实 API 用例。当前共 106 项：
+97 本地、8 `real_agy`、1 `real_lark`。具体执行结果见 [0.0.3 说明](RELEASE-0.0.3.md)。
+
+| 当前手册 | 新覆盖 | 证据范围 |
+|---|---|---|
+| U04/U05 当前标记、切换、引用 | `test_list_switch_preserves_original_queue_and_panel_has_no_quote_target` | 实际卡片按钮→Hub→SQLite；总览不误充引用目标 |
+| U02/U12 新建表单 | `test_commands_form_captures_workspace_and_is_one_shot_after_restart`；`test_real_sdk_form_reaches_hub_and_creates_one_named_session` | 固定目录、重复提交、接收后重启；官方 SDK 表单字段解析到 Hub，回调为受控事件 |
+| U08 撤销队列 | `test_cancel_button_keeps_original_session_after_switch` | 切换后撤销原会话的未提交项 |
+| U09 停止/继续 | `test_stop_button_revalidates_native_turn_then_stops_original_session` | 旧运行代次拒绝、正确会话停止；本地 Runtime |
+| U13 归档/恢复 | `test_archive_resume_and_continue_buttons_round_trip` | 卡片入口完整往返，恢复后仍暂停，显式继续 |
+| U04/U06 分页和等待说明 | `test_paging_filters_stability_and_queued_reason` | 分页、归档筛选、稳定状态不重复更新、全局串行等待说明 |
+| U23 身份/表单边界 | `test_wrong_identity_message_value_and_expired_actions_do_not_switch`；`test_secret_in_form_is_never_saved_and_missing_title_can_be_corrected` | 错身份/错消息/值篡改/过期拒绝、凭据不落盘、纠正表单后可提交 |
+| U02/U04/U14 真正 Lark 卡片 | `test_real_lark_accepts_session_commands_and_new_form` | 真实发送与 GET 回读会话面板/命令卡/新建表单，随后仅清理测试卡；没有真实用户点击 |
+
+本地流程见 [test_panels.py](../tests/test_panels.py)、[SDK 回调测试](../tests/test_lark_channel.py)，
+真实 API 用例见 [test_real_lark_cards.py](../tests/e2e/test_real_lark_cards.py)。
+手机真实点击与视觉验收、原生 `/` 输入联想、并行执行仍未据此通过。
+
+## 0.0.2 历史审计（以下数量和缺口为当时状态）
 
 **仍有后续开发工作。优先补齐可重复的用户流程测试，以及手册暴露的使用障碍。** 当前测试不能证明手册中的所有步骤均已在真实 Lark 上跑通。
 

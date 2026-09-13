@@ -146,12 +146,19 @@ class LarkChannel:
         value = event.action.value
         eid = raw.get("header", {}).get("event_id")
         operator_tenant = raw.get("event", {}).get("operator", {}).get("tenant_key")
+        fields = getattr(event.action, "form_value", None) or {}
         if (
             candidate is None
             or operator_tenant != candidate.tenant
             or not isinstance(value, dict)
             or not isinstance(eid, str)
             or not eid
+            or not isinstance(fields, dict)
+            or len(fields) > 5
+            or any(
+                not isinstance(k, str) or not isinstance(v, str) or len(v) > 2000
+                for k, v in fields.items()
+            )
         ):
             self.rejections += 1
             return
@@ -164,6 +171,7 @@ class LarkChannel:
                         event.message_id,
                         str(value.get("token", "")),
                         str(value.get("decision", "")),
+                        fields,
                     )
                 )
             )

@@ -14,6 +14,7 @@ from typing import Any
 from unilark.adapters.sidecars.interface import Capability, CapabilityLevel, CapabilitySnapshot
 from unilark.adapters.sidecars.views import Busy, Rejected, Runtime, SessionView
 from unilark.conversation.channel import Action, Channel, Message, Owner
+from unilark.conversation.panels import Panels
 from unilark.conversation.questions import parse as parse_answers
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card, chunks
@@ -45,6 +46,9 @@ class Hub:
         self.report_health: Callable[[], None] | None = None
         self.default_workspace = default_workspace
         self.capabilities = getattr(runtime, "capabilities", CapabilitySnapshot("unknown", "", ""))
+        self.panels = Panels(
+            store, owner, profile, redactor, self.views, self.capabilities, default_workspace
+        )
 
     def require(self, capability: Capability) -> None:
         if self.capabilities.level(capability) == CapabilityLevel.UNSUPPORTED:
@@ -53,14 +57,14 @@ class Hub:
             )
 
     def session_label(self, session: dict[str, Any]) -> str:
-        context = self.store.journal.context(session["id"])
-        return self.redactor.text(
-            f"{session['title']} · {self.capabilities.engine_kind}\n"
-            f"会话 {session['id']}\n工作目录：{context['workspace'] or '由原生项目管理'}"
-        )
+        return self.panels.label(session)
 
     def notify(self, key: str, binding: str | None, title: str, text: str) -> None:
         safe = self.redactor.text(text)
+        if binding:
+            label = self.session_label(self.store.session(self.owner, binding))
+            if label not in safe:
+                safe += "\n\n" + label
         self.save_parts(key, binding, [card(self.redactor.text(title), p) for p in chunks(safe)])
 
     def save_parts(self, key: str, binding: str | None, payloads: list[dict[str, Any]]) -> None:
@@ -134,16 +138,31 @@ class Hub:
                 command, body = "input", message.text
             else:
                 command = command[1:]
-            if command in ("help", "whoami", "capabilities"):
+            if command in ("", "help", "tasks") or (
+                command in ("switch", "resume", "cancel") and not body.strip()
+            ):
+                self.store.receive(self.owner, event, "noop", binding, "")
+                self.store.request_state(self.owner, event, "DONE")
+                mode = {
+                    "tasks": "tasks",
+                    "switch": "sessions",
+                    "resume": "sessions",
+                    "cancel": "detail",
+                }.get(command, "commands")
+                self.panels.open(
+                    event,
+                    mode if mode != "detail" or binding else "sessions",
+                    binding if mode == "detail" else None,
+                    filter="archived" if command == "resume" else "active",
+                )
+            elif command in ("whoami", "capabilities"):
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
                 self.notify(
                     "reply:" + event,
                     binding,
                     "Unilark",
-                    HELP
-                    if command == "help"
-                    else self.owner.user
+                    self.owner.user
                     if command == "whoami"
                     else "\n".join(
                         f"{c.capability}: {c.level} · {c.detail}" for c in self.capabilities.claims
@@ -207,7 +226,7 @@ class Hub:
                 binding = body.strip()
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
-                self.notify("reply:" + event, binding, "已切换会话", binding)
+                self.panels.open(event, "detail", binding)
             elif command == "cancel":
                 ok = self.store.cancel_queued(self.owner, body.strip())
                 self.store.receive(self.owner, event, "noop", binding, "")
@@ -246,13 +265,35 @@ class Hub:
                         else "正在检查状态后继续本地队列。",
                     )
             else:
-                raise ValueError("不支持该命令。\n" + HELP)
+                self.store.receive(self.owner, event, "noop", binding, "")
+                self.store.request_state(self.owner, event, "DONE")
+                self.panels.open(event, "commands")
         except (ValueError, KeyError) as error:
             self.store.receive(self.owner, event, "noop", binding, "")
             self.store.request_state(self.owner, event, "DONE")
             self.notify("reply:" + event, binding, "未提交任务", str(error))
 
     async def action(self, action: Action) -> None:
+        if (
+            action.owner == self.owner
+            and self.store.owner(self.owner.account) == self.owner
+            and action.token.startswith("ui_")
+        ):
+            if self.store.seen(self.owner, action.event_id):
+                return
+            try:
+                if any(
+                    secret in value
+                    for value in action.fields.values()
+                    for secret in self.redactor.secrets
+                ):
+                    raise ValueError("输入含应用凭据，未保存或提交。")
+                if not self.panels.state.consume(action):
+                    raise ValueError("卡片已更新或操作已处理，请发送 /list 获取最新面板。")
+            except ValueError as error:
+                self.store.audit("rejected_panel_action")
+                self.notify("reply:" + action.event_id, None, "请查看最新卡片", str(error))
+            return
         if action.owner != self.owner or not self.store.consume(
             self.owner, action.token, action.message_id, action.decision, action.event_id
         ):
@@ -266,28 +307,13 @@ class Hub:
             self.store.request_state(self.owner, event, "SUBMITTING")
             writing = False
             try:
-                if action in ("sessions", "status"):
-                    sessions = self.store.sessions(self.owner)
-                    text = "\n\n".join(
-                        self.session_label(s)
-                        + f"\n{s['state']} · 队列 {s['queue_state']} · "
-                        + str(
-                            sum(
-                                o["state"] == "QUEUED" and o["binding_id"] == s["id"]
-                                for o in self.store.operations(self.owner)
-                            )
-                        )
-                        + " 项待提交\n最近观测："
-                        + str(
-                            (self.store.journal.observation(s["id"]) or {}).get("status", "未观测")
-                        )
-                        for s in sessions
-                    )
-                    text += "\n投递状态：" + json.dumps(
-                        self.store.delivery_health(self.owner), ensure_ascii=False
-                    )
-                    self.notify(
-                        "reply:" + event, binding, "会话状态", text or "暂无会话；发送 /new。"
+                if action == "panel":
+                    self.panels.perform(request)
+                elif action in ("sessions", "status"):
+                    self.panels.open(
+                        event,
+                        "detail" if action == "status" and binding else "sessions",
+                        binding if action == "status" else None,
                     )
                 elif binding and action != "noop":
                     session = self.store.session(self.owner, binding)
@@ -307,7 +333,7 @@ class Hub:
                             "reply:" + event,
                             binding,
                             "会话已建立",
-                            f"会话 {binding}\n原生会话 {native}",
+                            "准备成功，可以继续发送任务。/status 查看本会话，/list 切换会话。",
                         )
                     elif action == "archive":
                         if not (await self.runtime.view(native)).idle:
@@ -576,11 +602,11 @@ class Hub:
                         "AGY 请求批准",
                         self.redactor.text(step.resource)[:2800]
                         + (
-                            "\n仅本次生效；5 分钟未处理将提交拒绝。\n会话 "
+                            "\n仅本次生效；5 分钟未处理将提交拒绝。\n"
                             if buttons
-                            else "\n已处理或已到期，等待 AGY 状态更新。\n会话 "
+                            else "\n已处理或已到期，等待 AGY 状态更新。\n"
                         )
-                        + binding,
+                        + label,
                         buttons,
                     )
                 payloads.append(payload)
@@ -746,6 +772,7 @@ class Hub:
                 f"请求 {op['request_id']}\n{self.redactor.text(op['content'])}",
             )
             break  # Refresh runtime state before submitting any further input.
+        self.panels.render()
         await self.flush()
 
     async def flush(self) -> None:

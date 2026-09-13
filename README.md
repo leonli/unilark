@@ -1,8 +1,11 @@
-# Unilark 0.0.2
+# Unilark 0.0.3
 
 Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 Linux 实例完成真实收发、审批、停止、桌面接力和故障恢复验证。AGY 保留原生登录与历史，网关持久化身份、绑定、队列和卡片投递。
 
 ## 当前能力
+
+- `/` 命令面板；`/list` 当前标记、分页筛选、点选切换；`/tasks` 后台任务总览。
+- 新建标题表单；`/status` 会话详情、查看/撤销队列、停止/继续、归档/恢复按钮。
 
 - 私聊文本、固定会话引用、列表/切换、归档/恢复、新会话工作目录。
 - 忙时排队、显式 steer、停止后保持暂停、审批与结构化问答。
@@ -14,7 +17,8 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 完整证据及剩余验收边界见 [0.0.2 验证报告](docs/RELEASE-0.0.2.md)。
 日常操作见 [用户使用手册](docs/USER-GUIDE.md)；逐项验证范围与后续开发顺序见
 [手册与 E2E 对照](docs/E2E-COVERAGE.md)。
-下一轮交互设计见 [Rich UE 提案与流程原型](docs/UE-PROPOSAL.md)（待评审，尚未上线）。
+首轮交互改进见 [0.0.3 说明](docs/RELEASE-0.0.3.md)；完整后续方向见 [Rich UE 提案](docs/UE-PROPOSAL.md)。
+输入时 `/` 自动补全与真正并行执行尚未开放；同时执行上限仍为 1。
 
 ## 首次安装
 
@@ -23,8 +27,8 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf unilark-0.0.2-linux-x86_64.tar.gz
-python3 unilark-0.0.2-linux-x86_64/install.py
+tar -xzf unilark-0.0.3-linux-x86_64.tar.gz
+python3 unilark-0.0.3-linux-x86_64/install.py
 ~/.local/bin/unilark --config /private/path/agy.toml setup
 ```
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
@@ -36,6 +36,7 @@ class Action:
     message_id: str
     token: str
     decision: str
+    fields: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
