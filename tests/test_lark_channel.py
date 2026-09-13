@@ -238,3 +238,66 @@ async def test_pair_mode_cannot_deliver_or_dispatch_actions():
     adapter.on_action = AsyncMock()
     await adapter.action(None)
     adapter.on_action.assert_not_awaited()
+
+
+async def test_real_sdk_unmentioned_group_keeps_canonical_owner_and_actual_chat(channel):
+    channel.group_guard = AsyncMock(return_value=True)
+    received = AsyncMock()
+    channel.on_message = received
+    await dispatch(channel, envelope(chat_type="group", chat="oc_room", text="group input"))
+    received.assert_awaited_once()
+    msg = received.call_args.args[0]
+    assert msg.owner == OWNER and msg.chat == "oc_room"
+    # Hub performs the DB-backed guard on its own loop; the raw SDK thread never touches SQLite.
+    channel.group_guard.assert_not_awaited()
+    await dispatch(channel, envelope(chat_type="group", chat="oc_room", user="ou_other"))
+    assert received.await_count == 1
+
+
+async def test_menu_events_authenticate_timestamp_and_deduplicate_on_hub(channel, tmp_path):
+    from test_gateway import Channel, Runtime
+    from unilark.conversation.hub import Hub
+    from unilark.policy.redact import Redactor
+
+    store = GatewayStore(tmp_path / "menu.db")
+    store.set_owner(OWNER)
+    hub = Hub(store, Runtime(), Channel(), OWNER, "profile", Redactor(), enable_rooms=True)
+    channel.on_message = hub.accept
+    payload = {
+        "header": {"app_id": CREDS.app_id, "tenant_key": OWNER.tenant, "event_id": "menu-one"},
+        "event": {
+            "operator": {"operator_id": {"open_id": OWNER.user}},
+            "event_key": "unilark.new",
+            "timestamp": str(int(time.time())),
+        },
+    }
+
+    async def invoke():
+        # Exercise the SDK raw-event handler registry, including its dictionary coercion.
+        channel.sdk._raw_events._dispatcher_for("application.bot.menu_v6")(payload)
+        await asyncio.sleep(0.08)
+
+    try:
+        for _ in range(2):
+            await asyncio.wrap_future(
+                asyncio.run_coroutine_threadsafe(invoke(), channel.sdk._bg_loop)
+            )
+        assert store.db.execute("SELECT count(*) FROM ui_panels").fetchone()[0] == 1
+        payload["header"]["event_id"] = "stale"
+        payload["event"]["timestamp"] = "1"
+        await channel.menu(payload)
+        payload["header"]["event_id"] = "foreign"
+        payload["event"]["timestamp"] = str(int(time.time()))
+        payload["event"]["operator"]["operator_id"]["open_id"] = "ou_other"
+        await channel.menu(payload)
+        assert store.db.execute("SELECT count(*) FROM ui_panels").fetchone()[0] == 1
+    finally:
+        store.close()
+
+
+async def test_membership_change_during_render_is_retryable_without_sending(channel):
+    channel.group_guard = AsyncMock(side_effect=[True, False])
+    channel.rich_media.prepare = AsyncMock(return_value={})
+    channel.sdk.send = AsyncMock()
+    assert (await channel.deliver("oc_room", {}, "r")).state == "RETRY"
+    channel.sdk.send.assert_not_awaited()

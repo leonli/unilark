@@ -91,6 +91,14 @@ async def collect(
                         "schema": store.db.execute("PRAGMA user_version").fetchone()[0],
                         "sessions": len(store.sessions(owner)),
                     }
+                    if result["database"]["schema"] >= 3:
+                        rooms = store.rooms.all(owner)
+                        result["session_rooms"] = {
+                            "total": len(rooms),
+                            "ready": sum(r["status"] == "READY" for r in rooms),
+                            "pending": sum(r["status"] != "READY" for r in rooms),
+                            "issues": [r["reason"] for r in rooms if r["status"] != "READY"],
+                        }
                     if result["service"].get("state") == "running":
                         result["lark"]["connection"] = (
                             "connected"

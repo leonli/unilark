@@ -37,7 +37,8 @@ pytestmark = [
 ]
 
 
-async def test_real_lark_accepts_session_commands_and_new_form(tmp_path):
+@pytest.mark.parametrize("room_mode", [False, True])
+async def test_real_lark_accepts_session_commands_and_new_form(tmp_path, room_mode):
     credentials = load_credentials(Path(os.environ["UNILARK_REAL_LARK_CREDENTIALS"]))
     with_state = GatewayStore(Path(os.environ["UNILARK_REAL_LARK_STATE"]), readonly=True)
     try:
@@ -48,7 +49,15 @@ async def test_real_lark_accepts_session_commands_and_new_form(tmp_path):
     store = GatewayStore(tmp_path / "test-cards.db")
     store.set_owner(owner)
     runtime = SimpleNamespace(capabilities=CAPABILITIES)
-    hub = Hub(store, runtime, SimpleNamespace(), owner, "test", Redactor((credentials.app_secret,)))
+    hub = Hub(
+        store,
+        runtime,
+        SimpleNamespace(),
+        owner,
+        "test",
+        Redactor((credentials.app_secret,)),
+        enable_rooms=room_mode,
+    )
     for name in ("验收会话 A", "验收会话 B"):
         binding = store.add_session(owner, "test", str(uuid.uuid4()), "ACTIVE", name)
         hub.views[binding] = SessionView(True, "idle", "-1")

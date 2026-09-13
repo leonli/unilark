@@ -15,6 +15,7 @@ from unilark.onboarding.credentials import Credentials
 
 from .lifecycle import serialize_shutdown
 from .rich_media import RichMedia
+from .rooms import LarkRooms
 
 _WS_GATE = threading.Lock()
 
@@ -24,6 +25,7 @@ class LarkChannel:
         sdk = importlib.import_module("lark_channel")
         self.credentials = credentials
         self.owner = owner
+        self.group_guard: Callable[[str], Awaitable[bool]] | None = None
         self.envelopes: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.on_message: Callable[[Message], Awaitable[None]] | None = None
         self.on_action: Callable[[Action], Awaitable[None]] | None = None
@@ -41,7 +43,8 @@ class LarkChannel:
             policy=sdk.PolicyConfig(
                 dm_policy="allowlist" if owner else "open",
                 allow_from=[owner.user] if owner else [],
-                group_policy="disabled",
+                group_policy="open" if owner else "disabled",
+                require_mention=False,
             ),
             safety=sdk.SafetyConfig(
                 text_batch=sdk.TextBatchConfig(delay_ms=0, max_messages=1),
@@ -58,6 +61,7 @@ class LarkChannel:
             name_lookup=self.no_name,
         )
         serialize_shutdown(self.sdk)
+        self.room_api = LarkRooms(self.sdk.client, owner) if owner else None
         self.rich_media = RichMedia(self.upload_image)
         self.sdk.on("raw", self.raw)
         self.sdk.on("message", self.message)
@@ -65,6 +69,7 @@ class LarkChannel:
         self.sdk.on("error", self.error)
         self.sdk.on("reconnecting", self.disconnected)
         self.sdk.on("reconnected", self.reconnected)
+        self.sdk.on_raw_event("application.bot.menu_v6", self.menu)
 
     async def raw(self, data: dict[str, Any]) -> None:
         event = data.get("event", {})
@@ -96,21 +101,40 @@ class LarkChannel:
 
             await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(invoke(), self.loop))
 
-    def envelope_owner(self, header: dict[str, Any], user: str, chat: str) -> Owner | None:
+    def envelope_owner(
+        self, header: dict[str, Any], user: str, chat: str, *, group: bool = False
+    ) -> Owner | None:
         tenant = header.get("tenant_key")
         if header.get("app_id") != self.credentials.app_id or not tenant or not user or not chat:
             return None
         candidate = Owner(self.credentials.account, str(tenant), user, chat)
+        if (
+            group
+            and self.owner
+            and self.group_guard
+            and (candidate.account, candidate.tenant, candidate.user)
+            == (self.owner.account, self.owner.tenant, self.owner.user)
+        ):
+            return self.owner
         return candidate if self.owner is None or candidate == self.owner else None
 
     async def message(self, msg: Any) -> None:
         envelope = self.envelopes.pop(msg.message_id, {})
-        candidate = self.envelope_owner(envelope.get("header", {}), msg.sender_id, msg.chat_id)
+        candidate = self.envelope_owner(
+            envelope.get("header", {}), msg.sender_id, msg.chat_id, group=msg.chat_type == "group"
+        )
         raw_sender = envelope.get("sender", {})
         raw_id = raw_sender.get("sender_id", {}).get("open_id")
         valid = (
             candidate is not None
-            and msg.chat_type == "p2p"
+            and (
+                msg.chat_type == "p2p"
+                or (
+                    msg.chat_type == "group"
+                    and self.group_guard is not None
+                    and self.owner is not None
+                )
+            )
             and msg.sender_type == "user"
             and raw_sender.get("sender_type") == "user"
             and raw_sender.get("tenant_key") == envelope.get("header", {}).get("tenant_key")
@@ -132,6 +156,7 @@ class LarkChannel:
                         msg.create_time / 1000,
                         msg.reply_to_message_id,
                         msg.raw_content_type == "text",
+                        msg.chat_id,
                     )
                 )
             )
@@ -143,7 +168,10 @@ class LarkChannel:
             return
         raw = event.raw
         candidate = self.envelope_owner(
-            raw.get("header", {}), event.operator.open_id, event.chat_id
+            raw.get("header", {}),
+            event.operator.open_id,
+            event.chat_id,
+            group=event.chat_id != self.owner.chat,
         )
         value = event.action.value
         eid = raw.get("header", {}).get("event_id")
@@ -174,9 +202,31 @@ class LarkChannel:
                         str(value.get("token", "")),
                         str(value.get("decision", "")),
                         fields,
+                        event.chat_id,
                     )
                 )
             )
+
+    async def menu(self, data: dict[str, Any]) -> None:
+        if self.owner is None or self.on_message is None:
+            return
+        header, event = data.get("header", {}), data.get("event", {})
+        user = event.get("operator", {}).get("operator_id", {}).get("open_id", "")
+        candidate = self.envelope_owner(header, user, self.owner.chat)
+        command = {
+            "unilark.new": "/new-form",
+            "unilark.sessions": "/list",
+            "unilark.settings": "/settings",
+        }.get(event.get("event_key"))
+        eid = header.get("event_id")
+        try:
+            created = float(event.get("timestamp", 0))
+        except (TypeError, ValueError):
+            return
+        if candidate != self.owner or not command or not isinstance(eid, str) or not eid:
+            self.rejections += 1
+            return
+        await self.dispatch(self.on_message(Message(candidate, "menu:" + eid, command, created)))
 
     def error(self, error: Any) -> None:
         self.errors += 1  # Never log SDK exception text or raw payloads here.
@@ -252,9 +302,16 @@ class LarkChannel:
     async def deliver(
         self, chat: str, card: dict[str, Any], request_id: str, message_id: str | None = None
     ) -> Delivery:
-        if self.owner is None or chat != self.owner.chat:
+        if self.owner is None or (chat != self.owner.chat and self.group_guard is None):
             return Delivery("BLOCKED")
+        if chat != self.owner.chat and self.group_guard and not await self.group_guard(chat):
+            return Delivery("RETRY", retry_after=15)
         card = await self.rich_media.prepare(card)
+        # Image rendering/upload can outlast the membership cache.
+        if chat != self.owner.chat and (
+            self.group_guard is None or not await self.group_guard(chat)
+        ):
+            return Delivery("RETRY", retry_after=15)
         try:
             if message_id:
                 result = await self.sdk.update_card(message_id, card)

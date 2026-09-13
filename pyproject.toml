@@ -1,6 +1,6 @@
 [project]
 name = "unilark"
-version = "0.0.4"
+version = "0.0.5"
 description = "以 Lark 为移动交互入口、可接入不同本地 Agent sidecar 的常驻会话网关"
 requires-python = ">=3.11"
 license = { text = "UNLICENSED" }   # PRD 18 节第 1 项待拍板前不写猜测许可证

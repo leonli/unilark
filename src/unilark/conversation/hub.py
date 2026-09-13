@@ -16,6 +16,7 @@ from unilark.adapters.sidecars.views import Busy, Rejected, Runtime, SessionView
 from unilark.conversation.channel import Action, Channel, Message, Owner
 from unilark.conversation.panels import Panels
 from unilark.conversation.questions import parse as parse_answers
+from unilark.conversation.rooms import Rooms
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card, chunks
 from unilark.projection.rich_text import reply_cards
@@ -39,6 +40,8 @@ class Hub:
         profile: str,
         redactor: Redactor,
         default_workspace: str = "",
+        *,
+        enable_rooms: bool = False,
     ) -> None:
         self.store, self.runtime, self.channel = store, runtime, channel
         self.owner, self.profile, self.redactor = owner, profile, redactor
@@ -46,9 +49,25 @@ class Hub:
         self.stopping = asyncio.Event()
         self.report_health: Callable[[], None] | None = None
         self.default_workspace = default_workspace
+        self.room_mode = enable_rooms
+        self.rooms = (
+            Rooms(store, owner, getattr(channel, "room_api", None)) if enable_rooms else None
+        )
+        if self.rooms is not None:
+            channel.group_guard = self.rooms.allowed  # type: ignore[attr-defined]
         self.capabilities = getattr(runtime, "capabilities", CapabilitySnapshot("unknown", "", ""))
         self.panels = Panels(
-            store, owner, profile, redactor, self.views, self.capabilities, default_workspace
+            store,
+            owner,
+            profile,
+            redactor,
+            self.views,
+            self.capabilities,
+            default_workspace,
+            room_mode=enable_rooms,
+            domain=getattr(
+                getattr(channel, "credentials", None), "domain", "https://open.larksuite.com"
+            ),
         )
 
     def require(self, capability: Capability) -> None:
@@ -68,16 +87,30 @@ class Hub:
                 safe += "\n\n" + label
         self.save_parts(key, binding, [card(self.redactor.text(title), p) for p in chunks(safe)])
 
-    def save_parts(self, key: str, binding: str | None, payloads: list[dict[str, Any]]) -> None:
+    def save_parts(
+        self,
+        key: str,
+        binding: str | None,
+        payloads: list[dict[str, Any]],
+        *,
+        chat: str | None = None,
+    ) -> None:
+        if chat is None:
+            chat = (
+                self.store.rooms.event_chat(self.owner, key[6:])
+                if key.startswith("reply:")
+                else self.store.rooms.output_chat(self.owner, binding)
+            )
         previous = self.store.group_size(self.owner, key, len(payloads))
         for index, payload in enumerate(payloads):
-            self.store.put_card(key + f":{index}", self.owner, binding, payload)
+            self.store.put_card(key + f":{index}", self.owner, binding, payload, chat=chat)
         for index in range(len(payloads), previous):
             self.store.put_card(
                 key + f":{index}",
                 self.owner,
                 binding,
                 card("内容已更新", "请查看同一回复的首张卡片。"),
+                chat=chat,
             )
 
     async def accept(self, message: Message) -> None:
@@ -88,6 +121,13 @@ class Hub:
             self.store.audit("stale_or_invalid_message")
             return
         if self.store.seen(self.owner, message.event_id):
+            return
+        chat = message.chat or self.owner.chat
+        if chat != self.owner.chat and (self.rooms is None or not await self.rooms.allowed(chat)):
+            self.store.audit("unverified_group_input")
+            return
+        if not self.store.rooms.remember(self.owner, message.event_id, chat):
+            self.store.audit("changed_event_destination")
             return
         event = message.event_id
         if not message.supported:
@@ -107,7 +147,26 @@ class Hub:
             return
         binding: str | None = None
         try:
-            binding = self.store.target(self.owner, message.reply_to)
+            binding = (
+                self.store.rooms.binding(self.owner, chat)
+                if chat != self.owner.chat
+                else self.store.target(self.owner, message.reply_to)
+            )
+            if message.reply_to:
+                quoted = self.store.db.execute(
+                    "SELECT id,binding FROM cards WHERE owner=? AND message_id=?",
+                    (self.owner.key, message.reply_to),
+                ).fetchone()
+                if (
+                    chat != self.owner.chat
+                    and quoted is not None
+                    and (
+                        self.store.rooms.card_chat(self.owner, quoted["id"]) != chat
+                        or quoted["binding"] != binding
+                    )
+                ):
+                    raise ValueError("这张卡片属于其他会话，请进入对应会话群。")
+                # Quoting the owner's own text within a group still targets that fixed group.
             if message.reply_to and not text.startswith("/"):
                 question = self.store.quoted_question(self.owner, message.reply_to)
                 if question:
@@ -139,12 +198,23 @@ class Hub:
                 command, body = "input", message.text
             else:
                 command = command[1:]
-            if command in ("", "help", "tasks") or (
+            if (
+                self.room_mode
+                and command == "input"
+                and chat == self.owner.chat
+                and not message.reply_to
+            ):
+                self.store.receive(self.owner, event, "noop", None, "")
+                self.store.request_state(self.owner, event, "DONE")
+                self.panels.open(event, "sessions")
+            elif command in ("", "help", "tasks", "new-form", "settings") or (
                 command in ("switch", "resume", "cancel") and not body.strip()
             ):
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
                 mode = {
+                    "new-form": "new",
+                    "settings": "settings",
                     "tasks": "tasks",
                     "switch": "sessions",
                     "resume": "sessions",
@@ -182,12 +252,15 @@ class Hub:
                     self.store.journal.preference(
                         self.owner.key, self.profile, "workspace", self.default_workspace
                     ),
+                    room=self.room_mode,
                 )
                 self.notify(
                     "reply:" + event,
                     binding,
                     "会话准备中",
-                    f"会话 {binding}\n准备成功后自动提交排队输入。",
+                    "正在准备独立会话群，完成后会显示「进入会话」。"
+                    if self.room_mode
+                    else f"会话 {binding}\n准备成功后自动提交排队输入。",
                 )
                 if command == "new":
                     workspace = self.store.journal.preference(
@@ -216,6 +289,8 @@ class Hub:
                 self.store.receive(self.owner, event, command, binding, "")
             elif command in ("archive", "resume"):
                 target = body.strip() if command == "resume" else binding
+                if chat != self.owner.chat and target != binding:
+                    raise ValueError("请在对应会话群中操作。")
                 if not target:
                     raise ValueError("请指定或选择会话。")
                 session = self.store.session(self.owner, target)
@@ -223,12 +298,18 @@ class Hub:
                     raise ValueError("会话属于另一个实例。")
                 self.store.receive(self.owner, event, command, target, "")
             elif command == "switch":
-                self.store.switch(self.owner, body.strip())
+                if not self.room_mode:
+                    self.store.switch(self.owner, body.strip())
                 binding = body.strip()
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
                 self.panels.open(event, "detail", binding)
             elif command == "cancel":
+                if (
+                    chat != self.owner.chat
+                    and self.store.get(body.strip())["binding_id"] != binding
+                ):
+                    raise ValueError("这项输入属于其他会话。")
                 ok = self.store.cancel_queued(self.owner, body.strip())
                 self.store.receive(self.owner, event, "noop", binding, "")
                 self.store.request_state(self.owner, event, "DONE")
@@ -275,6 +356,22 @@ class Hub:
             self.notify("reply:" + event, binding, "未提交任务", str(error))
 
     async def action(self, action: Action) -> None:
+        chat = action.chat or self.owner.chat
+        if action.owner != self.owner or self.store.owner(self.owner.account) != self.owner:
+            self.store.audit("rejected_action_identity")
+            return
+        row = self.store.db.execute(
+            "SELECT id,binding FROM cards WHERE owner=? AND message_id=?",
+            (self.owner.key, action.message_id),
+        ).fetchone()
+        if row is None or self.store.rooms.card_chat(self.owner, row["id"]) != chat:
+            self.store.audit("rejected_action_destination")
+            return
+        if chat != self.owner.chat and (self.rooms is None or not await self.rooms.allowed(chat)):
+            self.store.audit("unverified_group_action")
+            return
+        if not self.store.rooms.remember(self.owner, action.event_id, chat):
+            return
         if (
             action.owner == self.owner
             and self.store.owner(self.owner.account) == self.owner
@@ -305,6 +402,11 @@ class Hub:
             if self.stopping.is_set():
                 break
             event, binding, action = request["event"], request["binding"], request["action"]
+            source_chat = self.store.rooms.event_chat(self.owner, event)
+            if source_chat != self.owner.chat and (
+                self.rooms is None or not await self.rooms.allowed(source_chat)
+            ):
+                continue
             self.store.request_state(self.owner, event, "SUBMITTING")
             writing = False
             try:
@@ -321,7 +423,17 @@ class Hub:
                     if session["profile"] != self.profile:
                         raise ValueError("Configured runtime differs from this binding")
                     native = session["native_id"]
-                    if action == "create":
+                    if action == "room":
+                        with self.store.db:
+                            self.store.rooms.add(
+                                self.owner,
+                                binding,
+                                source_chat=self.store.rooms.event_chat(self.owner, event),
+                            )
+                        room = self.store.rooms.get(self.owner, binding)
+                        if room and room["status"] == "ERROR":
+                            self.store.rooms.state(binding, "QUEUED", retry_at=0)
+                    elif action == "create":
                         context = self.store.journal.context(binding)
                         workspace = context["workspace"]
                         if not workspace and hasattr(self.runtime, "workspace"):
@@ -334,7 +446,9 @@ class Hub:
                             "reply:" + event,
                             binding,
                             "会话已建立",
-                            "准备成功，可以继续发送任务。/status 查看本会话，/list 切换会话。",
+                            "正在建立独立会话群，稍后点击「进入会话」。"
+                            if self.room_mode
+                            else "准备成功，可以继续发送任务。/status 查看本会话，/list 切换会话。",
                         )
                     elif action == "archive":
                         if not (await self.runtime.view(native)).idle:
@@ -563,7 +677,20 @@ class Hub:
         if not view.idle:
             live.add(view.anchor)
         self.store.close_interactions(binding, live)
+        for pending in self.store.db.execute(
+            "SELECT * FROM interactions WHERE binding=? AND status='OPEN' AND expires<=?",
+            (binding, time.time()),
+        ).fetchall():
+            self.store.expire_permission(self.owner, dict(pending))
+        room = self.store.rooms.get(self.owner, binding) if self.room_mode else None
+        if room and room["status"] != "READY":
+            return
+        prefix = "room:" + room["chat"] + ":" if room else ""
         for step in view.steps:
+            if room and step.index <= room["baseline"]:
+                continue
+            if room and step.kind == "tool" and not (step.permission or step.questions):
+                continue  # Routine tool activity is represented by the single status card.
             matched = [rid for rid in step.operation_ids if rid in own]
             if step.kind == "user" and matched:
                 continue  # Its receipt already appears in Lark.
@@ -574,7 +701,7 @@ class Hub:
                 step.kind, "AGY"
             )
             title += " · " + step.status
-            key = f"step:{binding}:{step.index}"
+            key = prefix + f"step:{binding}:{step.index}"
             safe = self.redactor.text(text)
             payloads = []
             for part, content in enumerate(chunks(safe)):
@@ -650,7 +777,7 @@ class Hub:
                 question_text += "\n\n" + label
                 payloads = [card("AGY 等待回答", self.redactor.text(question_text)[:3300], buttons)]
             self.save_parts(key, binding, payloads)
-        state_key = "state:" + binding
+        state_key = prefix + "state:" + binding
         context = label + "\n本地队列：" + session["queue_state"]
         if observation.get("gap_since"):
             context += "\n存在离线或历史变化区间；已核对当前快照，不能保证补齐全部中间事件。"
@@ -683,16 +810,58 @@ class Hub:
             try:
                 view = await self.runtime.view(session["native_id"])
                 self.views[session["id"]] = view
-                self.project(session, view)
             except Exception:
                 self.views[session["id"]] = None
                 self.store.journal.unavailable(session["id"])
+                room = self.store.rooms.get(self.owner, session["id"])
                 self.notify(
-                    "state:" + session["id"],
+                    ("room:" + room["chat"] + ":" if room and room["chat"] else "")
+                    + "state:"
+                    + session["id"],
                     session["id"],
                     "AGY 连接降级",
                     "无法取得当前状态；不会自动提交新任务或创建替代会话。",
                 )
+        if self.rooms is not None and not self.stopping.is_set():
+            await self.rooms.tick(self.views, self.profile)
+            for room in self.store.rooms.all(self.owner):
+                binding = room["binding"]
+                if self.store.session(self.owner, binding)["profile"] != self.profile:
+                    continue
+                if room["status"] == "READY":
+                    payload = card(
+                        "会话群已就绪", self.session_label(self.store.session(self.owner, binding))
+                    )
+                    payload["elements"].append(
+                        {"tag": "action", "actions": self.panels.room_controls(binding)}
+                    )
+                    self.save_parts(
+                        "room-entry:" + binding,
+                        binding,
+                        [payload],
+                        chat=room["source_chat"] or self.owner.chat,
+                    )
+                    alert_id = self.store.card_id(self.owner, "room-alert:" + binding + ":0")
+                    if self.store.db.execute(
+                        "SELECT 1 FROM cards WHERE id=?", (alert_id,)
+                    ).fetchone():
+                        self.save_parts(
+                            "room-alert:" + binding,
+                            binding,
+                            [card("会话群已恢复", "成员和权限已重新核验，可进入会话群继续。")],
+                            chat=self.owner.chat,
+                        )
+                elif room["status"] in ("BLOCKED", "ERROR", "UNKNOWN"):
+                    self.save_parts(
+                        "room-alert:" + binding,
+                        binding,
+                        [card("会话群暂停收发", room["reason"])],
+                        chat=self.owner.chat,
+                    )
+        for session in sessions:
+            observed = self.views.get(session["id"])
+            if observed is not None:
+                self.project(session, observed)
         operations = self.store.operations(self.owner)
         uncertain = any(o["state"] in ("UNKNOWN", "SUBMITTING") for o in operations)
         uncertain |= any(
@@ -730,6 +899,8 @@ class Hub:
             )
             if op["state"] != "QUEUED" or uncertain:
                 continue
+            if self.room_mode and self.store.rooms.paused(self.owner, binding):
+                continue
             if (
                 op["kind"] == "steer"
                 and self.capabilities.level(Capability.STEER) == CapabilityLevel.UNSUPPORTED
@@ -744,7 +915,11 @@ class Hub:
                 continue
             session = self.store.session(self.owner, binding)
             current_view = self.views.get(binding)
-            if session["state"] != "ACTIVE" or current_view is None:
+            if (
+                session["profile"] != self.profile
+                or session["state"] != "ACTIVE"
+                or current_view is None
+            ):
                 continue
             if op["kind"] == "input" and any(
                 v is None or not v.idle for v in [self.views.get(s["id"]) for s in sessions]
@@ -787,10 +962,15 @@ class Hub:
                 break
             if self.stopping.is_set() and time.monotonic() > shutdown_deadline:
                 break
+            chat = self.store.rooms.card_chat(self.owner, row["id"])
+            if chat != self.owner.chat and (
+                self.rooms is None or not await self.rooms.allowed(chat)
+            ):
+                continue
             self.store.delivery_started(row["id"])
             try:
                 result = await self.channel.deliver(
-                    self.owner.chat, json.loads(row["payload"]), row["id"], row["message_id"]
+                    chat, json.loads(row["payload"]), row["id"], row["message_id"]
                 )
                 state = result.state
                 if state == "RETRY" and row["attempts"] >= 8:

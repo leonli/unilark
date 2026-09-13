@@ -22,7 +22,7 @@ def test_candidate_migrates_only_new_copy_and_preserves_m1_owner(tmp_path):
     store.db.execute("PRAGMA user_version=1")
     store.close()
     target = tmp_path / "candidate.db"
-    assert migrate_copy(source, target) == 2
+    assert migrate_copy(source, target) == 3
     original = GatewayStore(source, readonly=True)
     migrated = GatewayStore(target, readonly=True)
     assert original.db.execute("PRAGMA user_version").fetchone()[0] == 1
@@ -37,7 +37,7 @@ def deployment(tmp_path, monkeypatch):
     prefix = tmp_path / "install"
     target = prefix / "releases/0.0.2"
     target.mkdir(parents=True)
-    (target / "release.json").write_text(json.dumps({"schema_min": 2, "schema_max": 2}))
+    (target / "release.json").write_text(json.dumps({"schema_min": 3, "schema_max": 3}))
     (prefix / "current").symlink_to(target)
     record = {
         "owner_uid": __import__("os").getuid(),
@@ -68,7 +68,7 @@ def deployment(tmp_path, monkeypatch):
     def prepare(bundle, install):
         candidate = install / "releases/0.0.3"
         candidate.mkdir()
-        manifest = {"version": "0.0.3", "schema_min": 2, "schema_max": 2, "schema_input_min": 1}
+        manifest = {"version": "0.0.3", "schema_min": 3, "schema_max": 3, "schema_input_min": 1}
         (candidate / "release.json").write_text(json.dumps(manifest))
         return candidate, manifest
 
@@ -115,7 +115,7 @@ def test_m1_is_allowed_for_upgrade_but_not_unsafe_program_rollback(deployment):
     store.close()
     target = prefix / "releases/0.0.2"
     (target / "release.json").write_text(
-        json.dumps({"schema_min": 2, "schema_max": 2, "schema_input_min": 1})
+        json.dumps({"schema_min": 3, "schema_max": 3, "schema_input_min": 1})
     )
     assert releases.compatible(target, args.state, migrate=True)
     assert not releases.compatible(target, args.state)

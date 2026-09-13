@@ -27,6 +27,9 @@ class PanelStore:
                 body TEXT NOT NULL, expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS ui_actions_card ON ui_actions(card);
+            CREATE TABLE IF NOT EXISTS panel_chats (
+                card TEXT PRIMARY KEY REFERENCES ui_panels(id), chat TEXT NOT NULL
+            );
         """)
 
     def open(
@@ -38,6 +41,7 @@ class PanelStore:
         *,
         page: int = 0,
         filter: str = "active",
+        chat: str | None = None,
     ) -> None:
         with self.db:
             self.db.execute(
@@ -53,6 +57,11 @@ class PanelStore:
                     filter,
                     time.time() + 86400,
                 ),
+            )
+            # Persist destination before render without creating an empty outgoing card.
+            cid = self.store.card_id(owner, key)
+            self.db.execute(
+                "INSERT OR IGNORE INTO panel_chats VALUES(?,?)", (cid, chat or owner.chat)
             )
 
     def panels(self, owner: Owner) -> list[dict[str, Any]]:
@@ -98,6 +107,10 @@ class PanelStore:
                 "ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,revision=cards.revision+1",
                 (panel["id"], owner.key, panel["binding"], body),
             )
+            destination = self.db.execute(
+                "SELECT chat FROM panel_chats WHERE card=?", (panel["id"],)
+            ).fetchone()
+            self.store.rooms.set_card(panel["id"], destination[0] if destination else owner.chat)
             self.db.execute("UPDATE ui_panels SET digest=? WHERE id=?", (digest, panel["id"]))
 
     def consume(self, action: Action) -> bool:
@@ -120,9 +133,21 @@ class PanelStore:
             intent = json.loads(row["body"])
             if intent["op"] == "create":
                 title = action.fields.get("title", "").strip()
-                if set(action.fields) != {"title"} or not title or len(title) > 80:
+                if (
+                    set(action.fields) - {"title", "project", "task"}
+                    or not title
+                    or len(title) > 80
+                ):
                     raise ValueError("请填写 1–80 字的会话标题，然后重新提交。")
                 intent["title"] = title
+                if "projects" in intent:
+                    project = action.fields.get("project", "0")
+                    if project not in intent["projects"]:
+                        raise ValueError("请选择表单中的项目。")
+                    intent["workspace"] = intent["projects"][project]
+                    intent["first_task"] = action.fields.get("task", "").strip()
+                elif set(action.fields) != {"title"}:
+                    raise ValueError("请刷新新建表单。")
             elif action.fields:
                 raise ValueError("此按钮不接受表单内容。")
             self.db.execute("UPDATE ui_actions SET used=1 WHERE token=?", (action.token,))

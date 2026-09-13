@@ -167,7 +167,7 @@ def test_schema_upgrade_preserves_v1_data_and_blocks_old_code(tmp_path):
     store.close()
     store = GatewayStore(path)
     assert store.owner(OWNER.account) == OWNER
-    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
     store.close()
 
 

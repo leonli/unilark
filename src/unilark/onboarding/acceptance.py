@@ -117,7 +117,7 @@ async def run(args: argparse.Namespace) -> int:
     client = load_agy(args.config)
     store = GatewayStore(args.state, readonly=True)
     try:
-        if store.db.execute("PRAGMA user_version").fetchone()[0] != 2:
+        if store.db.execute("PRAGMA user_version").fetchone()[0] not in (2, 3):
             raise ValueError("Upgrade the gateway before recording acceptance with this version")
         owner = store.owner(credentials.account)
         if owner is None:

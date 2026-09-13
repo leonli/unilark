@@ -11,17 +11,19 @@ from typing import Any
 from unilark.conversation.channel import Owner
 from unilark.store.journal import Journal
 from unilark.store.ledger import Ledger
+from unilark.store.rooms import RoomStore
 
 
 class GatewayStore(Ledger):
     def __init__(self, path: Path, *, readonly: bool = False) -> None:
         super().__init__(path, readonly=readonly)
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             self.close()
             raise ValueError("Unsupported database schema; use the matching Unilark version")
         if readonly:
             self.journal = Journal(self.db, initialize=False)
+            self.rooms = RoomStore(self.db, initialize=False)
             return
         self.db.executescript("""
             CREATE TABLE IF NOT EXISTS owner (account TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -64,9 +66,12 @@ class GatewayStore(Ledger):
                 owner TEXT NOT NULL, name TEXT NOT NULL, parts INTEGER NOT NULL,
                 PRIMARY KEY(owner,name)
             );
-            PRAGMA user_version=2;
         """)
         self.journal = Journal(self.db)
+        self.rooms = RoomStore(self.db)
+        # Old writers must not update group cards without destination/member checks.
+        with self.db:
+            self.db.execute("PRAGMA user_version=3")
 
     def accept_session(
         self,
@@ -77,6 +82,9 @@ class GatewayStore(Ledger):
         action: str,
         title: str,
         workspace: str = "",
+        *,
+        room: bool = False,
+        first_task: str = "",
     ) -> str:
         """Binding, selection and intent survive or roll back together."""
         uuid.UUID(native)
@@ -106,6 +114,8 @@ class GatewayStore(Ledger):
                 (owner.key, event, action, binding, ""),
             )
             if inserted.rowcount:
+                if room:
+                    self.rooms.add(owner, binding, first_task, self.rooms.event_chat(owner, event))
                 if action == "create":
                     self.db.execute(
                         "INSERT OR IGNORE INTO session_context VALUES(?,?,?,?)",
@@ -345,16 +355,26 @@ class GatewayStore(Ledger):
                 "UPDATE inbox SET status=? WHERE owner=? AND event=?", (state, owner.key, event)
             )
 
-    def put_card(self, key: str, owner: Owner, binding: str | None, payload: dict[str, Any]) -> str:
+    def put_card(
+        self,
+        key: str,
+        owner: Owner,
+        binding: str | None,
+        payload: dict[str, Any],
+        *,
+        chat: str | None = None,
+    ) -> str:
         card_id = self.card_id(owner, key)
         encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         with self.db:
+            existed = self.db.execute("SELECT 1 FROM cards WHERE id=?", (card_id,)).fetchone()
             self.db.execute(
                 """INSERT INTO cards(id,owner,binding,payload) VALUES(?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,revision=cards.revision+1
                 WHERE cards.payload!=excluded.payload""",
                 (card_id, owner.key, binding, encoded),
             )
+            self.rooms.set_card(card_id, owner.chat if existed else (chat or owner.chat))
         return card_id
 
     @staticmethod
@@ -391,12 +411,15 @@ class GatewayStore(Ledger):
         return [
             dict(r)
             for r in self.db.execute(
-                """SELECT * FROM cards WHERE owner=? AND
-            revision>delivered AND state NOT IN ('UNKNOWN','BLOCKED','SENDING','DISMISSED')
-            AND retry_at<=?
-            ORDER BY EXISTS(SELECT 1 FROM interactions i WHERE i.card=cards.id
-                            AND i.kind='permission' AND i.status='OPEN') DESC, rowid LIMIT 30""",
-                (owner.key, time.time()),
+                """SELECT c.* FROM cards c
+            LEFT JOIN card_chats cc ON cc.card=c.id
+            LEFT JOIN session_rooms r ON r.chat=cc.chat AND r.owner=c.owner
+            WHERE c.owner=? AND c.revision>c.delivered
+            AND c.state NOT IN ('UNKNOWN','BLOCKED','SENDING','DISMISSED') AND c.retry_at<=?
+            AND (cc.chat IS NULL OR cc.chat=? OR r.status='READY')
+            ORDER BY EXISTS(SELECT 1 FROM interactions i WHERE i.card=c.id
+                            AND i.kind='permission' AND i.status='OPEN') DESC, c.rowid LIMIT 30""",
+                (owner.key, time.time(), owner.chat),
             )
         ]
 

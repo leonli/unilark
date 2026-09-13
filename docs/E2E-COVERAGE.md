@@ -1,7 +1,31 @@
 # 用户手册与 E2E 测试对照
 
 日期：2026-09-13。本文主体保留 0.0.2 的历史审计（代码基线 `cb4524d`）；
-当前[用户手册](USER-GUIDE.md) 已更新为 0.0.4，新覆盖和仍有的缺口以下面的增量表为准。
+当前[用户手册](USER-GUIDE.md) 已更新为 0.0.5，新覆盖和仍有的缺口以下面的增量表为准。
+
+## 0.0.5 独立会话群增量
+
+共 151 项：135 本地、4 浏览器、9 real_agy、3 real_lark。新增代码的真实 Lark 收信/菜单点击尚待权限发布及客户端操作。
+0.0.4 的浏览器图表回归记录沿用；这次真实 Lark 验证旧模式和群模式面板各 1 项，真实 AGY 验证群目标路由及重启 1 项。
+
+| 手册 | 测试 | 实际边界 |
+|---|---|---|
+| U01/U04 两群固定路由 | `test_two_groups_route_independently_and_dm_is_navigation` | Hub、账本、真实卡片结构；执行端/群 API 为替身，串行调度 |
+| U02 一次创建 | `test_new_form_project_first_task_once_after_restart`、`test_invalid_project_does_not_consume_form` | 项目约束、一次表单、群未核验时不执行首任务、重启释放一次 |
+| U02 群内新建 | `test_new_from_group_entry_returns_to_origin` | 新群入口回到发起群，原群绑定不变 |
+| U03 旧会话入口 | `test_existing_session_waits_idle_preserves_dm_cards_no_history_replay` | 等空闲、原 native ID/DM 卡 ID 保留、只投影基线后的内容 |
+| U05/U13 跨群控制 | `test_foreign_group_quote_and_control_rejected` | 错引用/错群 token 拒绝，正确原群归档 |
+| U25 权限和恢复 | `test_membership_change_blocks_input_and_output_then_recovers`、`test_create_error_and_ambiguous_result_never_blind_retry` | 失败关闭、恢复、明确失败可显式重试、未知创建只查不重复 |
+| U25 输出隔离 | `test_blocked_group_backlog_does_not_starve_control_dm`、`test_membership_change_during_render_is_retryable_without_sending` | 堵塞群不饿死 DM，图表耗时期间重新核验 |
+| U25 Lark 接口契约 | `tests/test_room_api.py` | 权限缺失不建群，群配置/成员 ID/数量校验，服务器/传输失败分类 |
+| U01/U02 SDK 事件 | `test_real_sdk_unmentioned_group_keeps_canonical_owner_and_actual_chat`、`test_menu_events_authenticate_timestamp_and_deduplicate_on_hub` | 安装的 SDK，合成回调；主线程 SQLite、身份及时间校验、菜单去重 |
+| U01 真实 AGY | `test_real_hub_projects_response_and_recovers_binding[True]` | 真实原生任务/回答/重启去重，群投递为 Recorder |
+| U02 平台卡片格式 | `test_real_lark_accepts_session_commands_and_new_form[True]` | 真实 Lark 发送/回读/清理表单，未模拟真人点击 |
+| U21 迁移 | `test_schema3_rejects_previous_writer_without_touching_data`、生命周期测试 | 实际 0.0.4 Ledger 拒绝 schema 3；兼容回退 fixture 单独使用 schema 3 |
+
+真实探针另外确认建群、锁定邀请/分享、群详情以及标记查询均成功；成员读取与删除测试群因缺少授权被拒绝。
+探针建的空验证群保留在私有证据记录中，未承载任何任务。成员核验、群内 Markdown/Mermaid 发送、
+两个真实群收信、不 @ 对话、真实菜单点击及手机导航视觉，仍需 Lark 权限发布后完成；不能用上述本地绿灯代替。
 
 ## 0.0.4 视觉和富文本增量
 

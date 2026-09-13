@@ -10,6 +10,7 @@ from typing import Any
 from unilark.adapters.sidecars.interface import Capability, CapabilityLevel, CapabilitySnapshot
 from unilark.adapters.sidecars.views import SessionView
 from unilark.conversation.channel import Owner
+from unilark.conversation.rooms import room_link
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card
 from unilark.store.gateway import GatewayStore
@@ -46,10 +47,14 @@ class Panels:
         views: dict[str, SessionView | None],
         capabilities: CapabilitySnapshot,
         default_workspace: str = "",
+        *,
+        room_mode: bool = False,
+        domain: str = "https://open.larksuite.com",
     ) -> None:
         self.store, self.owner, self.profile = store, owner, profile
         self.redactor, self.views, self.capabilities = redactor, views, capabilities
         self.default_workspace = default_workspace
+        self.room_mode, self.domain = room_mode, domain
         self.state = PanelStore(store)
 
     def name(self, session: dict[str, Any]) -> str:
@@ -63,7 +68,29 @@ class Panels:
     def open(
         self, event: str, mode: str, binding: str | None = None, *, filter: str = "active"
     ) -> None:
-        self.state.open(self.owner, "reply:" + event + ":0", mode, binding, filter=filter)
+        chat = self.store.rooms.event_chat(self.owner, event)
+        if self.room_mode and (
+            mode != "detail" or self.store.rooms.binding(self.owner, chat) != binding
+        ):
+            chat = self.owner.chat
+        self.state.open(
+            self.owner, "reply:" + event + ":0", mode, binding, filter=filter, chat=chat
+        )
+
+    def room_controls(self, binding: str) -> list[dict[str, Any]]:
+        room = self.store.rooms.get(self.owner, binding)
+        if room and room["status"] == "READY":
+            return [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "进入会话"},
+                    "type": "primary",
+                    "url": room_link(room["chat"], self.domain),
+                }
+            ]
+        if not room or room["status"] == "ERROR":
+            return [button("重试建群" if room else "建立群入口", "room", binding=binding)]
+        return []
 
     def queued(self, binding: str) -> list[dict[str, Any]]:
         return [
@@ -127,7 +154,7 @@ class Panels:
 
     def row(self, session: dict[str, Any], selected: str | None) -> list[dict[str, Any]]:
         binding = session["id"]
-        current = binding == selected
+        current = binding == selected and not self.room_mode
         status = self.status(session)
         attention = status in ("等待你处理", "状态待确认", "暂不可用", "队列已暂停")
         heading = ("● 当前输入\n" if current else "") + self.name(session)
@@ -155,7 +182,9 @@ class Panels:
         if self.queued(binding):
             content.append(text(self.reason(session)))
         controls = [button("查看任务", "open", mode="detail", binding=binding)]
-        if session["state"] == "ACTIVE" and binding != selected:
+        if self.room_mode and session["state"] == "ACTIVE":
+            controls = self.room_controls(binding) + controls
+        elif session["state"] == "ACTIVE" and binding != selected:
             controls.insert(
                 0, {**button("切换到此会话", "switch", binding=binding), "type": "primary"}
             )
@@ -210,8 +239,11 @@ class Panels:
             "detail": "会话与任务",
             "commands": "命令面板",
             "new": "新建会话",
+            "settings": "设置",
         }[mode]
-        elements = ([text(current_text)] if mode != "new" else []) + [self.navigation()]
+        elements = ([text(current_text)] if mode != "new" and not self.room_mode else []) + [
+            self.navigation()
+        ]
         if mode in ("sessions", "tasks"):
             filtered = [
                 s for s in sessions if (s["state"] == "ARCHIVED") == (panel["filter"] == "archived")
@@ -226,7 +258,11 @@ class Panels:
             elements.append(
                 text(
                     f"{len(filtered)} 个会话 · 同时执行上限 1\n"
-                    "切换只改变下一条普通消息的目标；后台任务继续运行。"
+                    + (
+                        "进入对应群继续对话；每个群固定连接一个会话。"
+                        if self.room_mode
+                        else "切换只改变下一条普通消息的目标；后台任务继续运行。"
+                    )
                 )
             )
             if mode == "sessions":
@@ -276,7 +312,12 @@ class Panels:
             view = self.views.get(binding)
             controls = []
             if session["state"] == "ACTIVE":
-                if binding != selected:
+                if self.room_mode:
+                    controls.extend(self.room_controls(binding))
+                    room = self.store.rooms.get(self.owner, binding)
+                    if room and room["status"] != "READY":
+                        elements.append(text(room["reason"] or "正在准备独立会话群。"))
+                elif binding != selected:
                     controls.append(button("切换到此会话", "switch", binding=binding))
                 if (
                     view is not None
@@ -354,7 +395,17 @@ class Panels:
             if panel["submitted"]:
                 elements.append(text("创建请求已保存，请查看会话准备回执。此表单已提交。"))
             else:
-                submit = button("创建并切换", "create", workspace=workspace)
+                projects = list(
+                    dict.fromkeys(
+                        [workspace]
+                        + [self.store.journal.context(s["id"])["workspace"] for s in sessions]
+                    )
+                )[:20]
+                submit = button(
+                    "创建会话群" if self.room_mode else "创建并切换", "create", workspace=workspace
+                )
+                if self.room_mode:
+                    submit["_intent"]["projects"] = {str(i): p for i, p in enumerate(projects)}
                 submit.update(action_type="form_submit", name="create", type="primary")
                 elements.append(
                     {
@@ -370,11 +421,55 @@ class Panels:
                                     "content": "会话标题（1–80 字）",
                                 },
                             },
+                            *(
+                                [
+                                    {
+                                        "tag": "select_static",
+                                        "name": "project",
+                                        "required": True,
+                                        "initial_option": "0",
+                                        "options": [
+                                            {
+                                                "text": {
+                                                    "tag": "plain_text",
+                                                    "content": self.redactor.text(p or "原生项目"),
+                                                },
+                                                "value": str(i),
+                                            }
+                                            for i, p in enumerate(projects)
+                                        ],
+                                    },
+                                    {
+                                        "tag": "input",
+                                        "name": "task",
+                                        "input_type": "multiline_text",
+                                        "placeholder": {
+                                            "tag": "plain_text",
+                                            "content": "首条任务（选填，最多 2000 字）",
+                                        },
+                                    },
+                                ]
+                                if self.room_mode
+                                else []
+                            ),
                             submit,
                         ],
                     }
                 )
                 elements.append(text("也可发送 /new 标题 快速创建。/cwd 绝对目录 设置后续项目。"))
+        elif mode == "settings":
+            workspace = self.store.journal.preference(
+                self.owner.key, self.profile, "workspace", self.default_workspace
+            )
+            elements.extend(
+                [
+                    text("默认项目：" + self.redactor.text(workspace or "原生项目")),
+                    text(
+                        "发送 /cwd 绝对目录 修改默认项目。\n"
+                        "每个群固定一个会话，同时执行上限为 1。\n回复支持 Markdown 和 Mermaid 图。"
+                    ),
+                ]
+            )
         else:
             elements.extend(
                 [
@@ -403,6 +498,8 @@ class Panels:
         intent = json.loads(request["body"])
         op, binding, event = intent["op"], intent.get("binding"), request["event"]
         source = "ui:" + event
+        self.store.rooms.copy_event(self.owner, event, source)
+        self.store.rooms.copy_event(self.owner, event, source + ":detail")
         if binding and self.store.session(self.owner, binding)["profile"] != self.profile:
             raise ValueError("会话属于其他实例。")
         if (
@@ -423,7 +520,8 @@ class Panels:
         elif op == "page":
             self.state.page(self.owner, intent["panel"], intent["page"], intent["filter"])
         elif op == "switch":
-            self.state.switch(self.owner, event, binding)
+            if not self.room_mode:
+                self.state.switch(self.owner, event, binding)
             self.open(source, "detail", binding)
         elif op == "create":
             if not self.store.seen(self.owner, source):
@@ -435,8 +533,16 @@ class Panels:
                     "create",
                     self.redactor.text(intent["title"]),
                     intent["workspace"],
+                    room=self.room_mode,
+                    first_task=intent.get("first_task", ""),
+                )
+                self.store.journal.set_preference(
+                    self.owner.key, self.profile, "workspace", intent["workspace"]
                 )
                 self.open(source + ":detail", "detail", binding)
+        elif op == "room" and self.room_mode:
+            self.store.receive(self.owner, source, "room", binding, "")
+            self.open(source + ":detail", "detail", binding)
         elif op == "cancel":
             item = self.store.get(intent["request"])
             if item["binding_id"] != binding or not self.store.cancel_queued(

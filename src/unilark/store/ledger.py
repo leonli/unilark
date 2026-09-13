@@ -23,7 +23,7 @@ class Ledger:
                 raise ValueError("Ledger must not be a symlink")
             self.db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=10)
             self.db.row_factory = sqlite3.Row
-            if self.db.execute("PRAGMA user_version").fetchone()[0] not in (1, 2):
+            if self.db.execute("PRAGMA user_version").fetchone()[0] not in (1, 2, 3):
                 self.db.close()
                 raise ValueError("Unsupported database schema")
             return
@@ -35,7 +35,7 @@ class Ledger:
         os.close(fd)
         self.db = sqlite3.connect(path, timeout=10)
         self.db.row_factory = sqlite3.Row
-        if self.db.execute("PRAGMA user_version").fetchone()[0] not in (0, 1, 2):
+        if self.db.execute("PRAGMA user_version").fetchone()[0] not in (0, 1, 2, 3):
             self.db.close()
             raise ValueError("Unsupported database schema; no migration was attempted")
         self.db.execute("PRAGMA journal_mode=WAL")

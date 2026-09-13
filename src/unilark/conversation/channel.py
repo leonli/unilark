@@ -27,6 +27,7 @@ class Message:
     created_at: float
     reply_to: str | None = None
     supported: bool = True
+    chat: str = ""  # Actual destination; owner.chat remains the paired control DM.
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,7 @@ class Action:
     token: str
     decision: str
     fields: dict[str, str] = field(default_factory=dict)
+    chat: str = ""
 
 
 @dataclass(frozen=True)

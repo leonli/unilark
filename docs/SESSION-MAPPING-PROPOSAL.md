@@ -1,5 +1,8 @@
 # Stable Lark destinations for Agent sessions
 
+2026-09-13：用户已批准方案一，0.0.5 已实现独立会话群、项目/首条任务表单、固定路由与菜单事件处理。
+部署与真实权限状态见 [0.0.5 说明](RELEASE-0.0.5.md)。以下保留当时方案比较及来源。
+
 Date: 2026-09-13. Baseline: deployed 0.0.4. Status: proposal, not implemented or approved for rollout.
 
 The user finds managing multiple sessions through successive cards in one DM inconvenient. Styling has not removed the hidden selected-session state or mixed output history.

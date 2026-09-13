@@ -114,10 +114,10 @@ def main() -> None:
         "version": version,
         "platform": "linux-x86_64",
         "python": list(sys.version_info[:2]),
-        "schema_min": 2,
-        "schema_max": 2,
+        "schema_min": 3,
+        "schema_max": 3,
         "schema_input_min": 1,
-        "schema_output": 2,
+        "schema_output": 3,
         "license": "UNLICENSED",
         "distribution": "local experimental; publication undecided",
         "files": {

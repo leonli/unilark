@@ -149,6 +149,7 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                 str(client.transport.user_data.resolve()),
                 redactor,
                 default_workspace=await client.workspace(),
+                enable_rooms=True,
             )
             hub.report_health = report
             channel.on_message, channel.on_action = hub.accept, hub.action
@@ -163,8 +164,9 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                 "gateway:welcome",
                 None,
                 "Unilark 已连接",
-                "身份配对成功。\n\n先发送 /new 创建会话，再发送你的任务。"
-                "\n\n运行时发送 /stop 可停止并暂停队列，/help 查看命令。",
+                "发送 /list 打开会话，或 /new-form 填写新建表单。\n"
+                "每个会话使用独立群；点击「进入会话」后发送任务。\n"
+                "群内 /stop 停止并暂停队列，/help 查看命令。",
             )
             await hub.run()
             return 0

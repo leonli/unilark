@@ -28,28 +28,45 @@ pytestmark = [
 class Recorder:
     def __init__(self):
         self.cards = {}
+        self.chats = {}
+        self.room_api = self
+
+    async def create(self, title, request_id):
+        return "local_room_" + request_id
+
+    async def configure(self, chat):
+        pass
+
+    async def verify(self, chat, request_id):
+        return True
 
     async def deliver(self, chat, card, request_id, message_id=None):
         self.cards[request_id] = card
+        self.chats[request_id] = chat
         return Delivery("SENT", message_id or "local_" + request_id)
 
 
-async def test_real_hub_projects_response_and_recovers_binding(tmp_path):
+@pytest.mark.parametrize("room_mode", [False, True])
+async def test_real_hub_projects_response_and_recovers_binding(tmp_path, room_mode):
     client = load_agy(Path(os.environ["UNILARK_REAL_AGY_CONFIG"]))
     store = GatewayStore(tmp_path / "gateway.db")
     owner = Owner("recorder", "local", "local", "local")
     store.set_owner(owner)
     recorder = Recorder()
     profile = str(client.transport.user_data.resolve())
-    hub = Hub(store, client, recorder, owner, profile, Redactor())
+    hub = Hub(store, client, recorder, owner, profile, Redactor(), enable_rooms=room_mode)
     session = None
     marker = "M1-HUB-" + uuid.uuid4().hex[:12]
     try:
         await hub.accept(Message(owner, "new", "/new hub smoke", time.time()))
         await hub.tick()
         session = store.session(owner, store.target(owner))
+        room = store.rooms.get(owner, session["id"])
+        chat = room["chat"] if room else owner.chat
         await hub.accept(
-            Message(owner, "input", "Do not call tools. Reply exactly " + marker, time.time())
+            Message(
+                owner, "input", "Do not call tools. Reply exactly " + marker, time.time(), chat=chat
+            )
         )
         await hub.tick()
         assert store.operations(owner)[0]["state"] == "ACCEPTED"
@@ -61,6 +78,11 @@ async def test_real_hub_projects_response_and_recovers_binding(tmp_path):
             ]
             if marker in json.dumps(projected) and (await client.view(session["native_id"])).idle:
                 assert all(p["schema"] == "2.0" for p in projected)
+                assert all(
+                    recorder.chats[k] == chat
+                    for k, v in recorder.cards.items()
+                    if "AGY 回复" in v["header"]["title"]["content"]
+                )
                 break
             await asyncio.sleep(0.5)
         else:
@@ -68,8 +90,10 @@ async def test_real_hub_projects_response_and_recovers_binding(tmp_path):
         store.close()
         store = GatewayStore(tmp_path / "gateway.db")
         store.recover_gateway()
-        hub = Hub(store, client, recorder, owner, profile, Redactor())
-        await hub.accept(Message(owner, "input", "redelivery after restart", time.time()))
+        hub = Hub(store, client, recorder, owner, profile, Redactor(), enable_rooms=room_mode)
+        await hub.accept(
+            Message(owner, "input", "redelivery after restart", time.time(), chat=chat)
+        )
         await hub.tick()
         assert len(store.operations(owner)) == 1
         assert len([s for s in await client.steps(session["native_id"]) if "userInput" in s]) == 1
