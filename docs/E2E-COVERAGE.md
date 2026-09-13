@@ -5,7 +5,7 @@
 
 ## 0.0.5 独立会话群增量
 
-共 151 项：135 本地、4 浏览器、9 real_agy、3 real_lark。新增代码的真实 Lark 收信/菜单点击尚待权限发布及客户端操作。
+共 152 项：135 本地、4 浏览器、9 real_agy、4 real_lark。两项新增权限已实际复核，真实 Lark 收信/菜单点击待客户端操作。
 0.0.4 的浏览器图表回归记录沿用；这次真实 Lark 验证旧模式和群模式面板各 1 项，真实 AGY 验证群目标路由及重启 1 项。
 
 | 手册 | 测试 | 实际边界 |
@@ -21,11 +21,13 @@
 | U01/U02 SDK 事件 | `test_real_sdk_unmentioned_group_keeps_canonical_owner_and_actual_chat`、`test_menu_events_authenticate_timestamp_and_deduplicate_on_hub` | 安装的 SDK，合成回调；主线程 SQLite、身份及时间校验、菜单去重 |
 | U01 真实 AGY | `test_real_hub_projects_response_and_recovers_binding[True]` | 真实原生任务/回答/重启去重，群投递为 Recorder |
 | U02 平台卡片格式 | `test_real_lark_accepts_session_commands_and_new_form[True]` | 真实 Lark 发送/回读/清理表单，未模拟真人点击 |
+| U24/U25 真实私有群 | `test_real_private_group_members_markdown_mermaid_and_update` | 真实成员/权限核验、Markdown/Mermaid 发送与更新、群归属回读、临时卡撤回；无模拟用户入站 |
 | U21 迁移 | `test_schema3_rejects_previous_writer_without_touching_data`、生命周期测试 | 实际 0.0.4 Ledger 拒绝 schema 3；兼容回退 fixture 单独使用 schema 3 |
 
-真实探针另外确认建群、锁定邀请/分享、群详情以及标记查询均成功；成员读取与删除测试群因缺少授权被拒绝。
-探针建的空验证群保留在私有证据记录中，未承载任何任务。成员核验、群内 Markdown/Mermaid 发送、
-两个真实群收信、不 @ 对话、真实菜单点击及手机导航视觉，仍需 Lark 权限发布后完成；不能用上述本地绿灯代替。
+真实探针确认建群、锁定邀请/分享、群详情与标记查询成功。首次成员读取被拒绝，用户发布后已恢复并完成真实群 API 测试。
+验证群未承载业务任务，临时测试卡均已清理；群本身因没有删除权限保留，记录在私有证据文件。
+0.0.5 已实际升级、schema 3 生效，4 个既有绑定和 49 个消息 ID 保留。
+两个真实群收信、不 @ 对话、真实菜单点击及手机导航视觉仍待用户操作确认，不能用本地绿灯或 API 发送成功代替。
 
 ## 0.0.4 视觉和富文本增量
 
