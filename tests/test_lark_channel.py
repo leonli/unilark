@@ -254,7 +254,13 @@ async def test_real_sdk_unmentioned_group_keeps_canonical_owner_and_actual_chat(
     assert received.await_count == 1
 
 
-async def test_menu_events_authenticate_timestamp_and_deduplicate_on_hub(channel, tmp_path):
+@pytest.mark.parametrize(
+    ("event_key", "mode"),
+    [("unilark.new", "new"), ("unilark.sessions", "sessions"), ("unilark.settings", "settings")],
+)
+async def test_menu_events_authenticate_timestamp_and_deduplicate_on_hub(
+    channel, tmp_path, event_key, mode
+):
     from test_gateway import Channel, Runtime
     from unilark.conversation.hub import Hub
     from unilark.policy.redact import Redactor
@@ -267,7 +273,7 @@ async def test_menu_events_authenticate_timestamp_and_deduplicate_on_hub(channel
         "header": {"app_id": CREDS.app_id, "tenant_key": OWNER.tenant, "event_id": "menu-one"},
         "event": {
             "operator": {"operator_id": {"open_id": OWNER.user}},
-            "event_key": "unilark.new",
+            "event_key": event_key,
             "timestamp": str(int(time.time())),
         },
     }
@@ -282,7 +288,14 @@ async def test_menu_events_authenticate_timestamp_and_deduplicate_on_hub(channel
             await asyncio.wrap_future(
                 asyncio.run_coroutine_threadsafe(invoke(), channel.sdk._bg_loop)
             )
+        await hub.tick()
         assert store.db.execute("SELECT count(*) FROM ui_panels").fetchone()[0] == 1
+        panel = store.db.execute(
+            "SELECT p.mode,c.message_id,c.revision,c.delivered "
+            "FROM ui_panels p JOIN cards c ON c.id=p.id"
+        ).fetchone()
+        assert panel["mode"] == mode and panel["message_id"]
+        assert panel["revision"] == panel["delivered"]
         payload["header"]["event_id"] = "stale"
         payload["event"]["timestamp"] = "1"
         await channel.menu(payload)

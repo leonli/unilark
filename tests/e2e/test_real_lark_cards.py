@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,6 +36,57 @@ pytestmark = [
         reason="No explicitly selected paired Lark environment",
     ),
 ]
+
+
+async def test_real_settings_menu_delivers_card(tmp_path):
+    """Drive the settings menu boundary through Hub and real HTTP delivery, then recall."""
+    credentials = load_credentials(Path(os.environ["UNILARK_REAL_LARK_CREDENTIALS"]))
+    live = GatewayStore(Path(os.environ["UNILARK_REAL_LARK_STATE"]), readonly=True)
+    try:
+        owner = live.owner(credentials.account)
+        assert owner is not None
+    finally:
+        live.close()
+    store = GatewayStore(tmp_path / "settings.db")
+    store.set_owner(owner)
+    channel = LarkChannel(credentials, owner)
+    channel.connected = True  # Enable Hub HTTP outbox; deliberately do not open another WebSocket.
+    runtime = SimpleNamespace(capabilities=CAPABILITIES)
+    hub = Hub(store, runtime, channel, owner, "test", Redactor(), enable_rooms=True)
+    channel.on_message = hub.accept
+    try:
+        await channel.menu(
+            {
+                "header": {
+                    "app_id": credentials.app_id,
+                    "tenant_key": owner.tenant,
+                    "event_id": str(uuid.uuid4()),
+                },
+                "event": {
+                    "operator": {"operator_id": {"open_id": owner.user}},
+                    "event_key": "unilark.settings",
+                    "timestamp": str(int(time.time())),
+                },
+            }
+        )
+        await hub.tick()
+        rows = store.db.execute(
+            "SELECT p.mode,c.message_id FROM ui_panels p JOIN cards c ON c.id=p.id"
+        ).fetchall()
+        assert len(rows) == 1 and rows[0]["mode"] == "settings" and rows[0]["message_id"]
+        data = await channel.room_api.request("GET", "/im/v1/messages/" + rows[0]["message_id"])
+        item = data["items"][0]
+        assert item["chat_id"] == owner.chat and item["msg_type"] == "interactive"
+        assert "设置" in item["body"]["content"]
+    finally:
+        try:
+            for row in store.db.execute(
+                "SELECT message_id FROM cards WHERE message_id IS NOT NULL"
+            ):
+                await channel.room_api.request("DELETE", "/im/v1/messages/" + row[0])
+        finally:
+            await channel.disconnect()
+            store.close()
 
 
 @pytest.mark.parametrize("room_mode", [False, True])
