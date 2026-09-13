@@ -1,4 +1,4 @@
-# Unilark 0.0.3
+# Unilark 0.0.4
 
 Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 Linux 实例完成真实收发、审批、停止、桌面接力和故障恢复验证。AGY 保留原生登录与历史，网关持久化身份、绑定、队列和卡片投递。
 
@@ -6,7 +6,7 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 
 - `/` 命令面板；`/list` 当前标记、分页筛选、点选切换；`/tasks` 后台任务总览。
 - 新建标题表单；`/status` 会话详情、查看/撤销队列、停止/继续、归档/恢复按钮。
-
+- 会话独立色块、状态标签与分割线；回复支持 Markdown 标题/表格/代码块，Mermaid 本机转图片。
 - 私聊文本、固定会话引用、列表/切换、归档/恢复、新会话工作目录。
 - 忙时排队、显式 steer、停止后保持暂停、审批与结构化问答。
 - SQLite WAL 输入/控制/投递账本、快照对账、断线补投递、UNKNOWN 人工核对与审计。
@@ -18,6 +18,7 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 日常操作见 [用户使用手册](docs/USER-GUIDE.md)；逐项验证范围与后续开发顺序见
 [手册与 E2E 对照](docs/E2E-COVERAGE.md)。
 首轮交互改进见 [0.0.3 说明](docs/RELEASE-0.0.3.md)；完整后续方向见 [Rich UE 提案](docs/UE-PROPOSAL.md)。
+本版视觉与富文本改进见 [0.0.4 说明](docs/RELEASE-0.0.4.md)。
 输入时 `/` 自动补全与真正并行执行尚未开放；同时执行上限仍为 1。
 
 ## 首次安装
@@ -27,12 +28,14 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf unilark-0.0.3-linux-x86_64.tar.gz
-python3 unilark-0.0.3-linux-x86_64/install.py
+tar -xzf unilark-0.0.4-linux-x86_64.tar.gz
+python3 unilark-0.0.4-linux-x86_64/install.py
+~/.local/share/unilark/current/.venv/bin/python -m playwright install chromium --only-shell
 ~/.local/bin/unilark --config /private/path/agy.toml setup
 ```
 
 AGY 通过其官方流程独立安装并登录；配置参考 `config.example.toml`。
+Python 依赖与 Mermaid 脚本在包内；Chromium 浏览器需单独下载，离线主机需预置匹配浏览器及系统依赖。
 [安装指南](docs/install.md) 包含前台验收、后台交接、升级/回退和卸载步骤；
 [Lark 配置](docs/LARK-SETUP.md) 说明权限、事件、配对与真实消息验收。
 
@@ -74,6 +77,7 @@ python3 -m venv .venv
 .venv/bin/ruff check .
 .venv/bin/mypy
 .venv/bin/pytest -q -m 'not real_agy and not real_lark'
+UNILARK_LOCAL_BROWSER=1 .venv/bin/pytest -q -m local_browser
 UNILARK_REAL_AGY_CONFIG=/private/path/agy.toml .venv/bin/pytest -q -m real_agy
 .venv/bin/python scripts/build-release.py --output dist
 ```

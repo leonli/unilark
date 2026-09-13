@@ -127,18 +127,69 @@ class Panels:
 
     def row(self, session: dict[str, Any], selected: str | None) -> list[dict[str, Any]]:
         binding = session["id"]
-        description = ("● 当前输入 → " if binding == selected else "") + self.label(session)
-        description += "\n" + self.status(session) + f" · 排队 {len(self.queued(binding))} 项"
-        if session["queue_state"] == "PAUSED" and self.status(session) != "队列已暂停":
-            description += " · 队列暂停"
+        current = binding == selected
+        status = self.status(session)
+        attention = status in ("等待你处理", "状态待确认", "暂不可用", "队列已暂停")
+        heading = ("● 当前输入\n" if current else "") + self.name(session)
+        workspace = self.store.journal.context(binding)["workspace"]
+        project = self.redactor.text(Path(workspace).name if workspace else "原生项目")
+        summary = f"项目：{project}\n排队 {len(self.queued(binding))} 项"
+        if session["queue_state"] == "PAUSED" and status != "队列已暂停":
+            summary += " · 队列暂停"
+        status_color = (
+            "orange"
+            if attention
+            else ("blue" if status in ("正在运行", "排队中", "准备中", "连接中") else "neutral")
+        )
+        content = [
+            {**text(heading), "text": {**text(heading)["text"], "text_size": "heading"}},
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": '<text_tag color="' + status_color + '">' + status + "</text_tag>",
+                },
+            },
+            text(summary),
+        ]
         if self.queued(binding):
-            description += "\n" + self.reason(session)
+            content.append(text(self.reason(session)))
         controls = [button("查看任务", "open", mode="detail", binding=binding)]
         if session["state"] == "ACTIVE" and binding != selected:
-            controls.insert(0, button("切换到此会话", "switch", binding=binding))
+            controls.insert(
+                0, {**button("切换到此会话", "switch", binding=binding), "type": "primary"}
+            )
         if session["state"] == "ARCHIVED":
             controls.insert(0, button("恢复会话", "resume", binding=binding))
-        return [{"tag": "hr"}, text(description), actions(*controls)]
+        return [
+            {
+                "tag": "column_set",
+                "flex_mode": "none",
+                "background_style": "blue-50" if current else "grey-50",
+                "margin": "8px 0px 8px 0px",
+                "columns": [
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "padding": "12px",
+                        "vertical_spacing": "8px",
+                        "elements": [
+                            *content,
+                            {"tag": "hr"},
+                            {
+                                "tag": "column_set",
+                                "flex_mode": "flow",
+                                "columns": [
+                                    {"tag": "column", "width": "auto", "elements": [control]}
+                                    for control in controls
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
 
     def render(self) -> None:
         for panel in self.state.panels(self.owner):

@@ -60,6 +60,7 @@ async def test_real_hub_projects_response_and_recovers_binding(tmp_path):
                 v for v in recorder.cards.values() if "AGY 回复" in v["header"]["title"]["content"]
             ]
             if marker in json.dumps(projected) and (await client.view(session["native_id"])).idle:
+                assert all(p["schema"] == "2.0" for p in projected)
                 break
             await asyncio.sleep(0.5)
         else:

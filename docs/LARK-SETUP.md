@@ -31,6 +31,7 @@ App Secret 只在向导中隐藏输入，不作为聊天内容或命令参数。
 3. 开通 `im:message:send_as_bot`、`im:message:update` 及私聊接收所需的
    `im:message.p2p_msg:readonly`，按控制台处理依赖。
    当前使用普通消息卡片，无 CardKit 流式权限需求。
+   0.0.4 的 Mermaid 图片还需 `im:resource` 或 `im:resource:upload`；本机应用已实测具备上传权限。
 4. 事件与回调选择长连接，订阅 `im.message.receive_v1` 和 `card.action.trigger`。
    如果控制台要求已有连接，向导进入 `pair` 后切回浏览器保存。
    创建/发布版本，可用范围包含本人，按租户要求审批/安装；改权限后重新发布/安装。

@@ -78,6 +78,11 @@ async def test_list_switch_preserves_original_queue_and_panel_has_no_quote_targe
     panel = rendered(store, mode="sessions")
     assert panel["binding"] is None
     assert panel["payload"].count("● 当前输入") == 1
+    rows = [e for e in json.loads(panel["payload"])["elements"] if e["tag"] == "column_set"]
+    assert len(rows) == 2
+    assert [r["background_style"] for r in rows] == ["blue-50", "grey-50"]
+    assert all(r["columns"][0]["padding"] == "12px" for r in rows)
+    assert all('"tag": "hr"' in json.dumps(r) for r in rows)
     action = click(store, panel, "切换到此会话", binding=first["id"])
     await hub.action(action)
     await hub.tick()
@@ -90,6 +95,18 @@ async def test_list_switch_preserves_original_queue_and_panel_has_no_quote_targe
     await send(hub, "ambiguous quote", reply_to=panel["message_id"])
     assert len(store.operations(OWNER)) == 2
     assert first["id"] != second["id"]
+
+
+async def test_attention_status_remains_legible_with_color_and_text(gateway):
+    hub, store, _, _ = gateway
+    session = await new(hub, store)
+    hub.views[session["id"]] = SessionView(
+        False, "running", "1", [StepView(0, "tool", "waiting", permission=True)]
+    )
+    rendered_row = json.dumps(hub.panels.row(session, session["id"]), ensure_ascii=False)
+    assert "orange" in rendered_row and "等待你处理" in rendered_row
+    assert "● 当前输入" in rendered_row and "blue-50" in rendered_row
+    assert "查看任务" in rendered_row
 
 
 async def test_commands_form_captures_workspace_and_is_one_shot_after_restart(gateway, tmp_path):

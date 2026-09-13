@@ -1,7 +1,28 @@
 # 用户手册与 E2E 测试对照
 
 日期：2026-09-13。本文主体保留 0.0.2 的历史审计（代码基线 `cb4524d`）；
-当前[用户手册](USER-GUIDE.md) 已更新为 0.0.3，新覆盖和仍有的缺口以下面的增量表为准。
+当前[用户手册](USER-GUIDE.md) 已更新为 0.0.4，新覆盖和仍有的缺口以下面的增量表为准。
+
+## 0.0.4 视觉和富文本增量
+
+当前共 120 项：106 本地、4 本机浏览器、8 real_agy、2 real_lark。
+本次执行通过 106 本地、4 浏览器、2 real_lark 及 1 项 real_agy Hub；未复跑其余 7 项原生流程。
+
+| 手册场景 | 新覆盖 | 证据边界 |
+|---|---|---|
+| U04 会话分块 | `test_list_switch_preserves_original_queue_and_panel_has_no_quote_target`、`test_attention_status_remains_legible_with_color_and_text` | 样式、文字标签、嵌套按钮切换原会话 |
+| U24 Markdown | `test_markdown_structure_and_complete_diagram_survive_projection`、`test_long_code_and_table_split_at_structure_boundaries_without_losing_rows` | 标题、列表、引用、链接、表格、代码；600 行续卡完整 |
+| U24 生成与失败 | `test_streaming_mermaid_waits_for_matching_closing_fence`、`test_diagram_cache_and_failure_keep_source_without_mutating_saved_payload` | 围栏闭合、上传缓存、语法/超时/权限失败保留源码、失败冷却 |
+| U05/U23 引用与脱敏 | `test_hub_redacts_before_diagram_projection_and_reuses_card_and_quote_target` | 完整脱敏、更新原卡、切换后引用原会话 |
+| U24 实际图表 | `tests/e2e/test_local_diagrams.py` 的 4 项 | 真实 Chromium，中文流程图/时序图、非法源码、网络阻断；不是手机截图 |
+| U04/U24 平台接口 | `tests/e2e/test_real_lark_cards.py` 的 2 项 | 真实面板发送/回读；SDK 上传、富文本发送、旧卡升级更新；仅清理测试卡 |
+| U01 实际 Agent | `test_real_hub_projects_response_and_recovers_binding` | 真实 AGY 回复采用 JSON 2.0；Lark 为 Recorder |
+| U17 发行资产 | `test_vendored_diagram_script_matches_provenance_and_has_license` | JS 来源哈希与许可证，发行另核对 wheel/manifest |
+
+JSON 2.0 的消息 GET 返回兼容占位内容，不返回 Markdown 正文和原图 key。
+本版不声称正文回读或手机布局自动验收通过；`acceptance verify` 保留正文匹配门禁，不能新记富文本验收通过。
+手机明暗模式、表格分页、实际触控和图片预览仍需在客户端检查。
+0.0.3 的 AGY 停止超时记录保留，本次未重复全部原生审批/停止回归。
 
 ## 0.0.3 交互改进增量
 

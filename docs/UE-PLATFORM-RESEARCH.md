@@ -1,5 +1,25 @@
 # Rich UE：Lark 平台能力核查
 
+## 0.0.4 富文本补充（2026-09-13）
+
+以下是实现阶段新增核查，包含真实 API 测试；后文保留最初提案的只读研究记录。
+
+- JSON 2.0 Markdown 支持标题、表格、代码块；使用 `schema: 2.0` 和 `body.elements`。Mermaid 需要本机转图。
+- JSON 1.0 column 支持语义背景色和嵌套按钮；实际 API 拒绝 column 内的 action 按钮组，已改为嵌套列中直接放按钮。
+- 当前应用经 SDK 上传 PNG 成功；旧 JSON 1.0 消息更新为 JSON 2.0 成功，无须增加 CardKit 流式权限。
+- 当前租户的 JSON 2.0 GET 消息返回兼容占位图，不返回实际正文；最小纯文字卡也相同。不能用该接口替代客户端视觉验收。
+
+官方来源（本次读取）：
+
+- [JSON 2.0 Markdown](https://open.larksuite.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-components/content-components/rich-text.md)
+- [JSON 2.0 普通文本](https://open.larksuite.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-components/content-components/plain-text.md)
+- [分栏容器](https://open.larksuite.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-components/containers/column-set.md)
+- [卡片图片](https://open.larksuite.com/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/card-json-v2-components/content-components/image.md)
+- [上传图片与权限](https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/image/create.md)
+- [消息 GET：不返回原始卡片 JSON](https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/get.md)
+
+## 原始提案核查
+
 核查时间：2026-09-13。范围：公开官方文档、官方 Channel SDK 源码、当前 Unilark adapter。未操作开发者后台，未发送 Lark 消息，未改变生产配置。本文为提案依据，不代表完成了真实客户端验收。
 
 ## 结论

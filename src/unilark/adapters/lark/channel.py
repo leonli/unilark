@@ -14,6 +14,7 @@ from unilark.conversation.channel import Action, Delivery, Message, Owner
 from unilark.onboarding.credentials import Credentials
 
 from .lifecycle import serialize_shutdown
+from .rich_media import RichMedia
 
 _WS_GATE = threading.Lock()
 
@@ -57,6 +58,7 @@ class LarkChannel:
             name_lookup=self.no_name,
         )
         serialize_shutdown(self.sdk)
+        self.rich_media = RichMedia(self.upload_image)
         self.sdk.on("raw", self.raw)
         self.sdk.on("message", self.message)
         self.sdk.on("cardAction", self.action)
@@ -240,11 +242,19 @@ class LarkChannel:
         self.ws_loop = None
         _WS_GATE.release()
 
+    async def upload_image(self, data: bytes) -> str:
+        result = await self.sdk.driver.upload_image(data=data, file_name="diagram.png")
+        key = result.get("data", {}).get("image_key")
+        if result.get("code") != 0 or not isinstance(key, str) or not key:
+            raise RuntimeError("Lark image upload failed")
+        return key
+
     async def deliver(
         self, chat: str, card: dict[str, Any], request_id: str, message_id: str | None = None
     ) -> Delivery:
         if self.owner is None or chat != self.owner.chat:
             return Delivery("BLOCKED")
+        card = await self.rich_media.prepare(card)
         try:
             if message_id:
                 result = await self.sdk.update_card(message_id, card)

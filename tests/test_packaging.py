@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import pathlib
 import re
 import subprocess
@@ -36,6 +38,15 @@ def test_declared_console_scripts_resolve() -> None:
         assert callable(getattr(module, attr, None)), (
             f"入口点 {name} 指向 {target}，但该对象不存在或不可调用"
         )
+
+
+def test_vendored_diagram_script_matches_provenance_and_has_license() -> None:
+    assets = REPO / "src/unilark/projection/assets"
+    provenance = json.loads((assets / "mermaid-provenance.json").read_text())
+    assert (
+        hashlib.sha256((assets / "mermaid.min.js").read_bytes()).hexdigest() == provenance["sha256"]
+    )
+    assert "MIT" in (assets / "MERMAID-LICENSE").read_text()
 
 
 def test_cli_version_matches_package() -> None:

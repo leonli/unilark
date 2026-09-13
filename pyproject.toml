@@ -1,13 +1,13 @@
 [project]
 name = "unilark"
-version = "0.0.3"
+version = "0.0.4"
 description = "以 Lark 为移动交互入口、可接入不同本地 Agent sidecar 的常驻会话网关"
 requires-python = ">=3.11"
 license = { text = "UNLICENSED" }   # PRD 18 节第 1 项待拍板前不写猜测许可证
-dependencies = ["httpx==0.28.1"]
+dependencies = ["httpx==0.28.1", "markdown-it-py==4.2.0"]
 
 [project.optional-dependencies]
-lark = ["lark-channel-sdk==1.4.0"]
+lark = ["lark-channel-sdk==1.4.0", "playwright==1.62.0"]
 dev = [
   "pytest>=8",
   "pytest-asyncio>=0.24",
@@ -47,4 +47,5 @@ markers = [
   # CI 默认不跑，发布前必须在真实 AGY 上跑过。
   "real_agy: 需要真实 AGY 桌面端在跑",
   "real_lark: 需要真实 Lark 租户与应用",
+  "local_browser: 需要 Playwright Chromium，仅在本机渲染图表",
 ]

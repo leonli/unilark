@@ -15,11 +15,14 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from unilark.adapters.lark.channel import LarkChannel
 from unilark.adapters.sidecars.agy.capabilities import CAPABILITIES
 from unilark.adapters.sidecars.views import SessionView
 from unilark.conversation.hub import Hub
 from unilark.onboarding.credentials import load_credentials
 from unilark.policy.redact import Redactor
+from unilark.projection.cards import card
+from unilark.projection.rich_text import reply_cards
 from unilark.store.gateway import GatewayStore
 
 pytestmark = [
@@ -96,3 +99,86 @@ async def test_real_lark_accepts_session_commands_and_new_form(tmp_path):
                     assert result.get("code") == 0, "Could not recall a test card"
     finally:
         store.close()
+
+
+async def test_real_lark_markdown_image_and_upgrade_existing_card():
+    """Real SDK image upload/send/update and API readback; never opens a WebSocket."""
+    credentials = load_credentials(Path(os.environ["UNILARK_REAL_LARK_CREDENTIALS"]))
+    store = GatewayStore(Path(os.environ["UNILARK_REAL_LARK_STATE"]), readonly=True)
+    try:
+        owner = store.owner(credentials.account)
+        assert owner is not None
+    finally:
+        store.close()
+    channel = LarkChannel(credentials, owner)
+    sent = []
+    content = """# Markdown 验收
+
+**粗体**、`inline code`、[链接](https://example.com)
+
+> 引用说明
+
+- 列表 A
+- 列表 B
+
+| 组件 | 状态 |
+| --- | --- |
+| 标题与表格 | 可读 |
+
+```python
+print("hello")
+```
+
+```mermaid
+flowchart TD
+    A[手机 Lark] --> B[会话网关]
+    B --> C[本地 Agent]
+    C --> D[回复与架构图]
+```
+"""
+    async with httpx.AsyncClient(base_url=credentials.domain, timeout=20) as http:
+        auth = (
+            await http.post(
+                "/open-apis/auth/v3/tenant_access_token/internal",
+                json={
+                    "app_id": credentials.app_id,
+                    "app_secret": credentials.app_secret,
+                },
+            )
+        ).json()
+        assert auth.get("code") == 0, "Lark authentication failed"
+        http.headers["Authorization"] = "Bearer " + auth["tenant_access_token"]
+        try:
+            initial = await channel.deliver(
+                owner.chat, card("UE 自动验收 · 将自动清理", "旧卡"), str(uuid.uuid4())
+            )
+            assert initial.state == "SENT" and initial.message_id
+            sent.append(initial.message_id)
+            payload = reply_cards(
+                "UE 自动验收 · 无需操作 · 将自动清理", content, "测试会话 · Markdown / Mermaid"
+            )[0]
+            prepared = await channel.rich_media.prepare(payload)
+            images = [e for e in prepared["body"]["elements"] if e["tag"] == "img"]
+            assert len(images) == 1, "Local rendering / Lark image upload failed"
+            # Existing JSON 1.0 cards must migrate without losing their original message ID.
+            updated = await channel.deliver(
+                owner.chat, payload, str(uuid.uuid4()), initial.message_id
+            )
+            assert updated.state == "SENT" and updated.message_id == initial.message_id
+            created = await channel.deliver(owner.chat, payload, str(uuid.uuid4()))
+            assert created.state == "SENT" and created.message_id
+            sent.append(created.message_id)
+            assert len(channel.rich_media.cache) == 1
+            for message in sent:
+                received = (await http.get("/open-apis/im/v1/messages/" + message)).json()
+                assert received.get("code") == 0
+                body = received["data"]["items"][0]["body"]["content"]
+                # Lark GET flattens JSON 2.0 into a compatibility placeholder, even
+                # for a plain Markdown-only card. It cannot prove rendered body text.
+                assert received["data"]["items"][0]["chat_id"] == owner.chat
+                assert "UE 自动验收" in body
+        finally:
+            for message in sent:
+                result = (await http.delete("/open-apis/im/v1/messages/" + message)).json()
+                assert result.get("code") == 0, "Could not recall a test card"
+            await channel.disconnect()

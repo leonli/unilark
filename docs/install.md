@@ -1,21 +1,40 @@
 # 安装与程序维护
 
-适用于 0.0.2 实验版。只实测 Linux x86_64 / Python 3.12，要求主机提供 Python 与 venv。
+适用于 0.0.4 实验版。只实测 Linux x86_64 / Python 3.12，要求主机提供 Python 与 venv。
 隔离的虚拟环境与离线 wheels 安装在版本目录；不内嵌 Python 解释器、不自动安装 AGY。
 安装前使用同目录的 `SHA256SUMS` 验证压缩包。校验保证内容完整性，不是发行方签名。
 
 ## 安装布局
 
 ```bash
-python3 unilark-0.0.2-linux-x86_64/install.py
+python3 unilark-0.0.4-linux-x86_64/install.py
 # 自定义位置（目录需由本人拥有且 mode 0700）：
-python3 unilark-0.0.2-linux-x86_64/install.py \
+python3 unilark-0.0.4-linux-x86_64/install.py \
   --prefix /private/path/unilark --bin-dir /private/path/bin
 ```
 
-默认程序位于 `~/.local/share/unilark/releases/0.0.2/`；`current` 是激活链接。
+默认程序位于 `~/.local/share/unilark/releases/0.0.4/`；`current` 是激活链接。
 `~/.local/bin/unilark` 是稳定入口。已有安装或同名入口不会被覆盖，升级使用下方专用命令。
 发行包包含 `requirements.lock`、`sbom.cdx.json`、每文件哈希和操作文档。
+
+## 图表运行环境
+
+0.0.4 的 Markdown 回复要求 Lark 7.20+。Mermaid 11.17.2、许可证和来源校验随 wheel 分发；
+Playwright 1.62.0 Python wheel 在离线依赖包内，Chromium 可执行程序需要单独安装：
+
+```bash
+~/.local/share/unilark/current/.venv/bin/python -m playwright install chromium --only-shell
+```
+
+以运行网关的同一用户安装，默认缓存在该用户 `~/.cache/ms-playwright/`。新系统可能还需要 Chromium 系统库，
+可由主机管理员安装 Playwright 对应的系统依赖。离线安装要预置匹配的浏览器缓存；发行包没有包含浏览器。
+当前主机已安装匹配的 headless shell，并验证中文字体、流程图和时序图；未依赖 web-xia 的浏览器版本。
+浏览器缺失时正文仍可投递，图表回退为源码。需要图表上传权限 `im:resource` 或 `im:resource:upload`，
+当前应用上传已实测通过，不需再次配置。
+
+浏览器使用随包脚本、严格配置、网络请求拦截和 CSP；不下载远程图片或字体，不允许图内 init/frontmatter 改写安全配置。
+单图最多 6000 字符、300 条边、渲染 12 秒、渲染与上传合计 18 秒；超限保留源码。
+同一进程按源码哈希缓存最多 128 个图像 key；失败冷却 30 秒，后续正文更新时可重新尝试。
 
 默认状态目录 `~/.unilark/` 为 0700，凭据和数据库为 0600。
 全局参数 `--config`、`--state`、`--credentials` 必须放在子命令之前。
@@ -86,7 +105,7 @@ unilark --config /private/path/agy.toml uninstall --system
 
 用户服务省略 `--system`；自定义 prefix 加 `--prefix`。升级需要原生任务空闲，且没有 QUEUED/SUBMITTING/UNKNOWN 输入或控制。
 流程会核验包、停止唯一网关、重查安全点、生成一致性备份，在新副本验证迁移和原生配置，然后切换程序并检查服务健康。
-0.0.2 接受 schema 1/2 升级输入，产生 schema 2；doctor 和只读列表不会迁移数据库。
+0.0.4 接受 schema 1/2 升级输入，产生 schema 2；doctor 和只读列表不会迁移数据库。
 
 回退只切换兼容程序，**绝不拿旧备份覆盖升级后接收的数据**。0.0.1 不认识 schema 2，不能自动回退到它。
 兼容候选启动失败时尝试切回前一程序；不兼容时保留现场，需要本机核对。

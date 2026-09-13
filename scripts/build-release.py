@@ -21,7 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def runtime_requirements() -> list[str]:
-    pending = ["httpx", "lark-channel-sdk"]
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    pending = [
+        Requirement(r).name
+        for r in (project["dependencies"] + project["optional-dependencies"]["lark"])
+    ]
     found = {}
     while pending:
         name = pending.pop()
@@ -86,6 +90,15 @@ def main() -> None:
                     for name, release in [
                         r.split("==") for r in [f"unilark=={version}", *requirements]
                     ]
+                ]
+                + [
+                    {
+                        "type": "library",
+                        "name": "mermaid",
+                        "version": "11.17.2",
+                        "purl": "pkg:npm/mermaid@11.17.2",
+                        "licenses": [{"license": {"id": "MIT"}}],
+                    }
                 ],
             },
             indent=2,

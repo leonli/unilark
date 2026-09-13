@@ -18,6 +18,7 @@ from unilark.conversation.panels import Panels
 from unilark.conversation.questions import parse as parse_answers
 from unilark.policy.redact import Redactor
 from unilark.projection.cards import card, chunks
+from unilark.projection.rich_text import reply_cards
 from unilark.store.gateway import GatewayStore
 
 HELP = (
@@ -610,6 +611,8 @@ class Hub:
                         buttons,
                     )
                 payloads.append(payload)
+            if step.kind == "assistant" and not step.permission and not step.questions:
+                payloads = reply_cards(title, safe, label)
             if (
                 step.questions
                 and step.status == "waiting"
