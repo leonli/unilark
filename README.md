@@ -14,6 +14,7 @@ Lark/飞书与 AGY 桌面共享会话的本地网关。实验版，已在指定 
 完整证据及剩余验收边界见 [0.0.2 验证报告](docs/RELEASE-0.0.2.md)。
 日常操作见 [用户使用手册](docs/USER-GUIDE.md)；逐项验证范围与后续开发顺序见
 [手册与 E2E 对照](docs/E2E-COVERAGE.md)。
+下一轮交互设计见 [Rich UE 提案与流程原型](docs/UE-PROPOSAL.md)（待评审，尚未上线）。
 
 ## 首次安装
 
