@@ -47,8 +47,10 @@ def main() -> int:
                 url = urlsplit(href)
                 if url.scheme or url.netloc or not url.path:
                     continue
-                target = path.parent / unquote(url.path)
-                if not target.exists():
+                target = (path.parent / unquote(url.path)).resolve()
+                if not target.is_relative_to(ROOT):
+                    errors.append(f"{name}: target is outside the repository: {href}")
+                elif not target.exists():
                     errors.append(f"{name}: missing local target: {href}")
     expected = {f"u{i:02}" for i in range(1, 26)}
     for language in ("en", "zh-CN"):

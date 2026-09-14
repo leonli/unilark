@@ -216,8 +216,8 @@ UE-1 不必等待输入框联想能力，也不必先开放多会话同时写。
 
 ## 9. 可点击原型与评审范围
 
-原型：`prototype/rich-ue` 分支的 `docs/prototypes/rich-ue.prototype.html`。
-本机文件：[打开交互流程原型](../../ue-prototype/docs/prototypes/rich-ue.prototype.html)。双击即可使用，不安装依赖、不连接生产、不保存输入。
+早期可点击原型保留在本机实验工作区，未随当前仓库分发。
+当前已实现的操作流程见[对话示意图](assets/chat-flow.svg)和[用户手册](zh-CN/user-guide.md)。
 
 演示问题：用户能否区分“当前会话”和“后台执行”，并理解切换、引用、等待同项目和停止后继续的效果。它模拟推荐的并发上限 2；不是已经通过 AGY 验收的声明。页面外侧的状态说明、模拟按钮和导览属于原型工具，不是要塞进 Lark 的产品 UI。
 
