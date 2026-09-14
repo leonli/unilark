@@ -51,9 +51,8 @@ python3 unilark-0.0.6-linux-x86_64/install.py
 
 Then prepare the AGY configuration, install the diagram browser, configure the Lark
 app, pair your identity, and start the gateway. Follow the
-[installation guide](docs/en/installation.md) in order. Source checkout access is
-required for a private repository. There is no assumed PyPI package or pre-published
-GitHub release to download.
+[installation guide](docs/en/installation.md) in order. The source repository is
+public. There is no assumed PyPI package or pre-published GitHub release to download.
 
 Already configured? Open the bot's **新建会话** menu, enter the new group, and send:
 

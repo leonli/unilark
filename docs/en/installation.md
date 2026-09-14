@@ -26,7 +26,7 @@ There is no independent workspace sandbox. AGY decides which tools require appro
 
 ## 2. Build and install
 
-Get repository access if it is private, then:
+Clone the public source repository, then build and install:
 
 ```bash
 git clone https://github.com/leonli/unilark.git

@@ -23,7 +23,7 @@
 
 ## 2. 构建并安装
 
-先取得私有仓库访问权限，然后执行：
+克隆公开的源码仓库，然后构建并安装：
 
 ```bash
 git clone https://github.com/leonli/unilark.git

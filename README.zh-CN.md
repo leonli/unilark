@@ -41,7 +41,7 @@ python3 unilark-0.0.6-linux-x86_64/install.py
 ```
 
 随后准备 AGY 配置、安装图表浏览器、配置 Lark 应用、配对本人身份并启动网关，
-请按[安装手册](docs/zh-CN/installation.md)顺序操作。私有仓库需要访问权限；
+请按[安装手册](docs/zh-CN/installation.md)顺序操作。源码仓库已公开；
 此流程不依赖尚未发布的 PyPI 包或 GitHub Release。
 
 已经配置好？点机器人「新建会话」，进入新群发送：
