@@ -26,6 +26,15 @@
 
 沿用 schema 3，既有会话、消息 ID、未知结果和凭据保留。
 
+## 部署核验
+
+修复版已部署。升级前经用户确认停止旧任务，并通过原生空闲核验；仅切换网关，
+AGY 和桌面服务保持运行。数据库一致性备份及迁移副本检查通过，
+原有绑定、owner、选择、操作、群记录、已知消息 ID 和 UNKNOWN 记录均保留。
+网关运行且长连接正常，新健康记录明确显示 `quota_exhausted` 和一小时退避。
+`doctor` 仍返回 2：平台额度尚未恢复，这不是一次通过的真实新建会话验收。
+153 项本地测试、独立离线安装及 GitHub CI 均已通过。
+
 ## English
 
 Lark rejected verification of a newly created session group with HTTP 429 and
@@ -45,3 +54,10 @@ Local regression tests cover the idle request budget, membership enforcement,
 shared cooldown, eventual retry, and degraded diagnostics with a healthy connection.
 Real creation remains blocked until the administrator restores the platform quota
 or its period resets. No new menu publication, pairing, or replacement groups are needed.
+
+Deployment verified: after the user authorized stopping the old task and native
+idle was confirmed, only the gateway was upgraded. Database records were preserved;
+AGY and desktop processes stayed running. The new gateway is connected and reports
+the exhausted quota with a one-hour cooldown. Doctor still exits 2 until the external
+quota and outstanding delivery issues are resolved; live session creation is not yet
+accepted. All 153 local tests, the isolated offline installation, and GitHub CI passed.
