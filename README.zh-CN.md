@@ -24,7 +24,7 @@ Unilark 与已登录的 AGY 桌面实例运行在同一台主机。桌面与 Lar
 
 ## 开始使用
 
-当前为 **0.0.6 实验版**。实际运行验证组合：**Linux x86_64、Python 3.12、AGY 2.13.0、国际版 Lark**。
+当前为 **0.0.7 实验版**。实际运行验证组合：**Linux x86_64、Python 3.12、AGY 2.13.0、国际版 Lark**。
 适配器会校验指定 AGY bundle，不支持任意 AGY 版本。Python 3.11 另作为 CI 目标。
 
 从源码构建离线安装包：
@@ -37,7 +37,7 @@ python3.12 -m venv .venv
 .venv/bin/python scripts/build-release.py --output dist
 cd dist
 sha256sum -c SHA256SUMS
-python3 unilark-0.0.6-linux-x86_64/install.py
+python3 unilark-0.0.7-linux-x86_64/install.py
 ```
 
 随后准备 AGY 配置、安装图表浏览器、配置 Lark 应用、配对本人身份并启动网关，

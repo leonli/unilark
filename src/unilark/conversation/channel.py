@@ -43,7 +43,7 @@ class Action:
 
 @dataclass(frozen=True)
 class Delivery:
-    state: str  # SENT, RETRY (explicit rate-limit), UNKNOWN, BLOCKED
+    state: str  # SENT, RETRY (short rate-limit), DEFERRED (quota), UNKNOWN, BLOCKED
     message_id: str | None = None
     retry_after: float = 5
 

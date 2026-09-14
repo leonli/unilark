@@ -84,6 +84,28 @@ def test_doctor_separates_live_health_from_historical_acceptance(
             {
                 "state": "running",
                 "pid": os.getpid(),
+                "process_start": process_start(os.getpid()),
+                "lark_connected": True,
+                "agy_observed": True,
+                "lark_api": {
+                    "state": "quota_exhausted",
+                    "code": 99991403,
+                    "retry_at": time.time() + 3600,
+                    "reason": "Lark 本月 API 调用额度已耗尽（99991403）",
+                },
+            },
+        )
+        assert main(args) == 2
+        limited = json.loads(capsys.readouterr().out)
+        assert limited["lark"]["connection"] == "connected"
+        assert limited["lark"]["api"]["code"] == 99991403
+        assert any("额度" in message for message in limited["repairs"])
+        store.heartbeat(
+            owner,
+            profile,
+            {
+                "state": "running",
+                "pid": os.getpid(),
                 "process_start": "old-process",
                 "lark_connected": True,
                 "agy_observed": True,

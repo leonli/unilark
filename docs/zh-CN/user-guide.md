@@ -2,7 +2,7 @@
 
 [English](../en/user-guide.md) · [首页](../../README.zh-CN.md) · [安装手册](installation.md)
 
-适用版本：**0.0.6 实验版**。更新：2026-09-14。
+适用版本：**0.0.7 实验版**。更新：2026-09-14。
 
 ![新建会话、原位更新进度、收到最终答复](../assets/chat-flow.svg)
 
@@ -281,8 +281,8 @@ unilark service start --system
 
 ```bash
 sha256sum -c SHA256SUMS
-tar -xzf unilark-0.0.6-linux-x86_64.tar.gz
-python3 unilark-0.0.6-linux-x86_64/install.py
+tar -xzf unilark-0.0.7-linux-x86_64.tar.gz
+python3 unilark-0.0.7-linux-x86_64/install.py
 ```
 
 根据包内 `config.example.toml` 准备实例配置，再运行：
@@ -366,7 +366,7 @@ unilark --config /private/path/agy.toml upgrade /path/to/new-bundle --system
 unilark --config /private/path/agy.toml rollback --system
 ```
 
-备份包含任务正文，需要妥善保存；不会覆盖同名旧备份。升级需要**其他版本的已校验包**，不能拿当前 0.0.6 包再次覆盖自己。自定义安装添加 `--prefix`；用户服务省略 `--system`。
+备份包含任务正文，需要妥善保存；不会覆盖同名旧备份。升级需要**其他版本的已校验包**，不能拿当前 0.0.7 包再次覆盖自己。自定义安装添加 `--prefix`；用户服务省略 `--system`。
 
 升级流程会检查任务状态、备份数据库、在副本检查迁移，再切程序和核验健康。失败时根据数据库兼容性决定能否切回前版。
 

@@ -240,6 +240,69 @@ async def test_pair_mode_cannot_deliver_or_dispatch_actions():
     adapter.on_action.assert_not_awaited()
 
 
+@pytest.mark.parametrize("message_id", [None, "om_existing"])
+async def test_monthly_quota_is_deferred_and_shared_with_group_checks(channel, message_id):
+    from lark_channel.channel.errors import classify_error
+
+    from unilark.adapters.lark.rooms import RoomApiError
+
+    sender = AsyncMock(
+        return_value=SimpleNamespace(
+            success=False, error=classify_error(99991403, "quota exceeded")
+        )
+    )
+    channel.sdk.send = sender
+    channel.sdk.update_card = sender
+    result = await channel.deliver(OWNER.chat, {}, "request", message_id)
+    assert result.state == "DEFERRED" and result.retry_after >= 3500
+    assert (await channel.deliver(OWNER.chat, {}, "next")).state == "DEFERRED"
+    sender.assert_awaited_once()
+    request = AsyncMock()
+    channel.sdk.client.arequest = request
+    with pytest.raises(RoomApiError) as error:
+        await channel.room_api.verify("oc_room", "request")
+    assert error.value.code == 99991403
+    request.assert_not_awaited()
+
+
+async def test_hub_quota_backoff_does_not_exhaust_card_retries(channel, tmp_path, monkeypatch):
+    from lark_channel.channel.errors import classify_error
+
+    from test_gateway import Runtime
+    from unilark.conversation.hub import Hub
+    from unilark.policy.redact import Redactor
+
+    store = GatewayStore(tmp_path / "quota.db")
+    store.set_owner(OWNER)
+    channel.connected = True
+    hub = Hub(store, Runtime(), channel, OWNER, "profile", Redactor())
+    clock = time.time()
+    monkeypatch.setattr(time, "time", lambda: clock)
+    sender = AsyncMock(return_value=SimpleNamespace(success=False, error=classify_error(99991403)))
+    channel.sdk.send = sender
+    try:
+        hub.notify("one", None, "One", "first pending card")
+        hub.notify("two", None, "Two", "second pending card")
+        await hub.flush()
+        for _ in range(20):
+            clock += 2
+            await hub.flush()
+        sender.assert_awaited_once()
+        cards = store.db.execute("SELECT state,attempts FROM cards ORDER BY rowid").fetchall()
+        assert [tuple(c) for c in cards] == [("DEFERRED", 1), ("READY", 0)]
+        clock += 3601
+        sender.side_effect = [
+            SimpleNamespace(success=True, message_id="om_one"),
+            SimpleNamespace(success=True, message_id="om_two"),
+        ]
+        await hub.flush()
+        assert sender.await_count == 3
+        assert all(c[0] == "READY" for c in store.db.execute("SELECT state FROM cards"))
+    finally:
+        channel.connected = False
+        store.close()
+
+
 async def test_real_sdk_unmentioned_group_keeps_canonical_owner_and_actual_chat(channel):
     channel.group_guard = AsyncMock(return_value=True)
     received = AsyncMock()

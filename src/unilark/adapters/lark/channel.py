@@ -14,8 +14,9 @@ from unilark.conversation.channel import Action, Delivery, Message, Owner
 from unilark.onboarding.credentials import Credentials
 
 from .lifecycle import serialize_shutdown
+from .quota import MONTHLY_QUOTA_CODE, ApiQuota
 from .rich_media import RichMedia
-from .rooms import LarkRooms
+from .rooms import LarkRooms, RoomApiError
 
 _WS_GATE = threading.Lock()
 
@@ -61,7 +62,8 @@ class LarkChannel:
             name_lookup=self.no_name,
         )
         serialize_shutdown(self.sdk)
-        self.room_api = LarkRooms(self.sdk.client, owner) if owner else None
+        self.quota = ApiQuota()
+        self.room_api = LarkRooms(self.sdk.client, owner, self.quota) if owner else None
         self.rich_media = RichMedia(self.upload_image)
         self.sdk.on("raw", self.raw)
         self.sdk.on("message", self.message)
@@ -293,20 +295,33 @@ class LarkChannel:
         _WS_GATE.release()
 
     async def upload_image(self, data: bytes) -> str:
+        if self.quota.remaining:
+            raise RoomApiError(MONTHLY_QUOTA_CODE, retry_after=self.quota.remaining)
         result = await self.sdk.driver.upload_image(data=data, file_name="diagram.png")
+        if result.get("code") == MONTHLY_QUOTA_CODE:
+            self.quota.exhausted()
+            raise RoomApiError(MONTHLY_QUOTA_CODE)
         key = result.get("data", {}).get("image_key")
         if result.get("code") != 0 or not isinstance(key, str) or not key:
             raise RuntimeError("Lark image upload failed")
         return key
+
+    @property
+    def delivery_backoff(self) -> float:
+        return self.quota.remaining
 
     async def deliver(
         self, chat: str, card: dict[str, Any], request_id: str, message_id: str | None = None
     ) -> Delivery:
         if self.owner is None or (chat != self.owner.chat and self.group_guard is None):
             return Delivery("BLOCKED")
+        if self.quota.remaining:
+            return Delivery("DEFERRED", retry_after=self.quota.remaining)
         if chat != self.owner.chat and self.group_guard and not await self.group_guard(chat):
             return Delivery("RETRY", retry_after=15)
         card = await self.rich_media.prepare(card)
+        if self.quota.remaining:
+            return Delivery("DEFERRED", retry_after=self.quota.remaining)
         # Image rendering/upload can outlast the membership cache.
         if chat != self.owner.chat and (
             self.group_guard is None or not await self.group_guard(chat)
@@ -319,11 +334,18 @@ class LarkChannel:
                 result = await self.sdk.send(
                     chat, {"card": card}, {"uuid": request_id, "receive_id_type": "chat_id"}
                 )
-        except Exception:
+        except Exception as failure:
+            if getattr(failure, "raw_code", None) == MONTHLY_QUOTA_CODE:
+                self.quota.exhausted()
+                return Delivery("DEFERRED", retry_after=self.quota.remaining)
             return Delivery("RETRY" if message_id else "UNKNOWN")
         if result.success and (result.message_id or message_id):
+            self.quota.recovered()
             return Delivery("SENT", result.message_id or message_id)
         error = result.error
+        if getattr(error, "raw_code", None) == MONTHLY_QUOTA_CODE:
+            self.quota.exhausted()
+            return Delivery("DEFERRED", retry_after=self.quota.remaining)
         code = getattr(getattr(error, "code", None), "value", "")
         if code == "rate_limited" or (message_id and getattr(error, "retryable", False)):
             return Delivery(

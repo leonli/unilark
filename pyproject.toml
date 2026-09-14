@@ -1,6 +1,6 @@
 [project]
 name = "unilark"
-version = "0.0.6"
+version = "0.0.7"
 description = "以 Lark 为移动交互入口、可接入不同本地 Agent sidecar 的常驻会话网关"
 readme = "README.md"
 requires-python = ">=3.11"

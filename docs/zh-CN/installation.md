@@ -2,7 +2,7 @@
 
 [English](../en/installation.md) · [首页](../../README.zh-CN.md) · [用户手册](user-guide.md)
 
-适用于 **0.0.6**。首次安装请按顺序执行；已有配对的环境可直接看[维护](#维护)。
+适用于 **0.0.7**。首次安装请按顺序执行；已有配对的环境可直接看[维护](#维护)。
 示例路径和 ID 都是占位符，不能照抄其他安装的身份或凭据。
 
 ## 1. 准备环境
@@ -34,7 +34,7 @@ python3.12 -m venv .venv
 cd dist
 sha256sum -c SHA256SUMS
 cd ..
-python3 dist/unilark-0.0.6-linux-x86_64/install.py
+python3 dist/unilark-0.0.7-linux-x86_64/install.py
 export PATH="$HOME/.local/bin:$PATH"
 unilark --version
 ```
@@ -50,7 +50,7 @@ prefix 须属于本人且权限为 `0700`。
 | 默认位置 | 用途 |
 |---|---|
 | `~/.local/bin/unilark` | 稳定命令入口 |
-| `~/.local/share/unilark/releases/0.0.6/` | 程序和隔离 Python 环境 |
+| `~/.local/share/unilark/releases/0.0.7/` | 程序和隔离 Python 环境 |
 | `~/.local/share/unilark/current` | 当前版本软链接 |
 | `~/.unilark/agy.toml` | 不含密钥的 AGY 配置 |
 | `~/.unilark/lark.env` | 凭据，权限 `0600` |
@@ -217,9 +217,9 @@ unilark --config "$HOME/.unilark/agy.toml" rollback --system
 升级前原生任务须空闲，不能有排队、提交中或未知操作。升级器停止唯一网关后再核对，
 一致性备份 SQLite，验证迁移副本，再切换程序；不会用旧数据覆盖新接收的工作。
 
-0.0.6 使用 schema **3**，接受 schema 1–3 的升级输入。
+0.0.7 使用 schema **3**，接受 schema 1–3 的升级输入。
 0.0.5 可读 schema 3，0.0.4 及更早版本不可以；只允许兼容程序回退。
-已配置 0.0.5 的用户升级 0.0.6 不需新增权限或重新配对。
+已配置 0.0.5 的用户升级 0.0.7 不需新增权限或重新配对。
 
 ```bash
 unilark --config "$HOME/.unilark/agy.toml" uninstall --system
@@ -236,6 +236,7 @@ unilark --config "$HOME/.unilark/agy.toml" uninstall --system
 | 会话群未就绪 | 权限、已发布的租户授权、成员核验；处理后在详情重试 |
 | 群消息被忽略 | 已登记的正确群、群消息权限、连接、已发布事件订阅 |
 | 卡片投递被阻塞 | doctor 的 delivery 状态、发送/更新权限、群成员 |
+| 新建会话卡住，出现 `99991403` / `quota_exhausted` | 本月 API 额度已耗尽。在 Lark 后台核对用量、上限和重置日期；0.0.7 会统一退避一小时，额度恢复后下一个到期请求重试。重启不能恢复额度；旧 UNKNOWN 投递仍需核对。 |
 | AGY 失联或不兼容 | 可执行文件/目录、同一系统用户、登录及 bundle，不绕过校验 |
 | UNKNOWN | 先核对原生是否已执行，避免再次提交产生重复动作 |
 | 图表保持源码 | 浏览器及系统依赖、图片上传权限、图表语法和大小 |

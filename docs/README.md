@@ -9,11 +9,12 @@
 | Architecture | [Architecture](en/architecture.md) | [架构说明](zh-CN/architecture.md) |
 | Development | [Development](en/development.md) | [开发与验证](zh-CN/development.md) |
 
-Version 0.0.6. Diagrams in [assets/](assets/) are editable illustrations, not client screenshots.
-当前主线为 0.0.6；下方文件保留历史背景，不应替代当前安装或操作手册。
+Version 0.0.7. Diagrams in [assets/](assets/) are editable illustrations, not client screenshots.
+当前主线为 0.0.7；下方文件保留历史背景，不应替代当前安装或操作手册。
 
 ## Design, evidence, and history / 设计、证据与历史
 
+- [0.0.7 — API quota recovery](RELEASE-0.0.7.md)
 - [0.0.6 — quiet group chat](RELEASE-0.0.6.md)
 - [0.0.5 — private session groups](RELEASE-0.0.5.md)
 - [0.0.4 — Markdown and diagrams](RELEASE-0.0.4.md)

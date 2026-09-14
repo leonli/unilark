@@ -1000,9 +1000,13 @@ class Hub:
     async def flush(self) -> None:
         if not getattr(self.channel, "connected", True):
             return
+        if getattr(self.channel, "delivery_backoff", 0.0) > 0:
+            return
         shutdown_deadline = time.monotonic() + 5
         for row in self.store.dirty_cards(self.owner):
             if not getattr(self.channel, "connected", True):
+                break
+            if getattr(self.channel, "delivery_backoff", 0.0) > 0:
                 break
             if self.stopping.is_set() and time.monotonic() > shutdown_deadline:
                 break

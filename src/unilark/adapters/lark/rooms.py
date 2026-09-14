@@ -9,16 +9,20 @@ from urllib.parse import quote
 
 from unilark.conversation.channel import Owner
 
+from .quota import MONTHLY_QUOTA_CODE, QUOTA_BACKOFF, ApiQuota
+
 
 class RoomApiError(RuntimeError):
-    def __init__(self, code: int, *, ambiguous: bool = False) -> None:
+    def __init__(self, code: int, *, ambiguous: bool = False, retry_after: float = 0) -> None:
         super().__init__(f"Lark group API code {code}")
         self.code, self.ambiguous = code, ambiguous
+        self.retry_after = retry_after or (QUOTA_BACKOFF if code == MONTHLY_QUOTA_CODE else 0)
 
 
 class LarkRooms:
-    def __init__(self, client: Any, owner: Owner) -> None:
+    def __init__(self, client: Any, owner: Owner, quota: ApiQuota | None = None) -> None:
         self.client, self.owner = client, owner
+        self.quota = quota or ApiQuota()
 
     async def request(
         self,
@@ -28,6 +32,8 @@ class LarkRooms:
         body: dict[str, Any] | None = None,
         query: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        if self.quota.remaining:
+            raise RoomApiError(MONTHLY_QUOTA_CODE, retry_after=self.quota.remaining)
         from lark_channel.core.enum import (  # type: ignore[import-untyped]
             AccessTokenType,
             HttpMethod,
@@ -50,6 +56,9 @@ class LarkRooms:
         except Exception:
             raise RoomApiError(-1, ambiguous=method != "GET") from None
         code = result.get("code", -1)
+        if code == MONTHLY_QUOTA_CODE:
+            self.quota.exhausted()
+            raise RoomApiError(MONTHLY_QUOTA_CODE, retry_after=self.quota.remaining)
         if code != 0:
             # Explicit denials are safe to fix and retry; server failures may have committed.
             raise RoomApiError(
@@ -57,6 +66,7 @@ class LarkRooms:
                 ambiguous=method != "GET"
                 and (response.raw.status_code >= 500 or code in (-1, 99991400)),
             )
+        self.quota.recovered()
         return dict(result.get("data", {}))
 
     @staticmethod

@@ -111,6 +111,10 @@ async def collect(
             result["database"] = {"state": "unavailable_or_incompatible"}
             result["repairs"].append("保留数据库；使用兼容程序版本或一致性备份修复。")
     service = result["service"]
+    api_state = service.get("lark_api", {})
+    if api_state.get("state") == "quota_exhausted":
+        result["lark"]["api"] = api_state
+        result["repairs"].append(api_state["reason"])
     blocked = any(result["lark"].get("delivery", {}).get(s, 0) for s in ("UNKNOWN", "BLOCKED"))
     ready = (
         result["agy"].get("status") == "verified"
@@ -120,6 +124,7 @@ async def collect(
         and service.get("agy_observed")
         and not result["unresolved_operations"]
         and not blocked
+        and api_state.get("state") != "quota_exhausted"
         and (not check_api or result["lark"]["application"]["state"] == "verified")
     )
     if not ready:

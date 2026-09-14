@@ -6,6 +6,7 @@ import time
 from typing import Any
 from urllib.parse import urlencode
 
+from unilark.adapters.lark.quota import MONTHLY_QUOTA_CODE, QUOTA_REASON
 from unilark.adapters.lark.rooms import RoomApiError
 from unilark.conversation.channel import Owner
 from unilark.store.gateway import GatewayStore
@@ -31,8 +32,13 @@ class Rooms:
             return True
         if room["status"] == "BLOCKED" and room["retry_at"] > time.time():
             return False
+        reason, retry_after = "群成员或权限尚未通过核验，暂停群收发。", 15.0
         try:
             safe = bool(await self.api.verify(chat, room["request_id"]))
+        except RoomApiError as error:
+            safe = False
+            if error.code == MONTHLY_QUOTA_CODE:
+                reason, retry_after = QUOTA_REASON, error.retry_after
         except Exception:
             safe = False
         if safe:
@@ -43,8 +49,8 @@ class Rooms:
             self.store.rooms.state(
                 binding,
                 "BLOCKED",
-                "群成员或权限尚未通过核验，暂停群收发。",
-                retry_at=time.time() + 15,
+                reason,
+                retry_at=time.time() + retry_after,
             )
         return safe
 
@@ -54,7 +60,10 @@ class Rooms:
             session = self.store.session(self.owner, binding)
             if session["profile"] != profile or room["retry_at"] > time.time():
                 continue
-            if room["status"] in ("READY", "BLOCKED"):
+            # Ready rooms are verified at actual I/O boundaries, never while idle.
+            if room["status"] == "READY":
+                continue
+            if room["status"] == "BLOCKED":
                 if room["chat"]:
                     await self.allowed(room["chat"])
                 continue
@@ -93,6 +102,14 @@ class Rooms:
             except RoomApiError as error:
                 current = self.store.rooms.get(self.owner, binding)
                 assert current is not None
+                if error.code == MONTHLY_QUOTA_CODE and not error.ambiguous:
+                    self.store.rooms.state(
+                        binding,
+                        "QUEUED" if current["status"] == "CREATING" else current["status"],
+                        QUOTA_REASON,
+                        retry_at=time.time() + error.retry_after,
+                    )
+                    continue
                 if current["status"] == "CREATING":
                     self.store.rooms.state(
                         binding,

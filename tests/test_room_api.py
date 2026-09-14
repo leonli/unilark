@@ -92,3 +92,21 @@ async def test_no_group_is_created_before_required_permissions_granted():
         await LarkRooms(client, OWNER).create("title", "req")
     assert error.value.code == 40301 and not error.value.ambiguous
     assert client.arequest.await_count == 1
+
+
+async def test_monthly_quota_stops_other_room_api_calls_until_cooldown(monkeypatch):
+    import time
+
+    clock = time.time()
+    monkeypatch.setattr(time, "time", lambda: clock)
+    client = SimpleNamespace(arequest=AsyncMock(return_value=response(99991403, 429)))
+    api = LarkRooms(client, OWNER)
+    for path in ("/im/v1/chats/oc_one", "/im/v1/chats/oc_two", "/application/v6/scopes"):
+        with pytest.raises(RoomApiError) as error:
+            await api.request("GET", path)
+        assert error.value.code == 99991403
+    assert client.arequest.await_count == 1
+    clock += 3601
+    client.arequest.return_value = response(data={"recovered": True})
+    assert await api.request("GET", "/im/v1/chats/oc_one") == {"recovered": True}
+    assert client.arequest.await_count == 2

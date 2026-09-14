@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -286,3 +287,50 @@ async def test_blocked_group_backlog_does_not_starve_control_dm(gateway):
     hub.save_parts("notice", None, [{"header": {"title": {"content": "notice"}}}], chat=OWNER.chat)
     await hub.flush()
     assert [p["header"]["title"]["content"] for _, p, _, _ in channel.sent] == ["notice"]
+
+
+async def test_idle_groups_do_not_poll_but_next_input_rechecks_members(gateway, monkeypatch):
+    hub, store, _, channel = gateway
+    _, room = await create(hub, store)
+    verify = AsyncMock(return_value=True)
+    channel.room_api.verify = verify
+    clock = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: clock)
+    # Simulate a full idle minute across multiple cache expirations, through the real Hub.
+    for _ in range(10):
+        clock += 6
+        await hub.tick()
+    verify.assert_not_awaited()
+    verify.return_value = False
+    await group_send(hub, room["chat"], "must not execute in an unverified group")
+    verify.assert_awaited_once()
+    assert not store.operations(OWNER)
+
+
+async def test_quota_exhaustion_does_not_claim_permissions_changed(gateway):
+    hub, store, _, channel = gateway
+    session, room = await create(hub, store)
+    hub.rooms.verified.clear()
+    channel.room_api.verify = AsyncMock(side_effect=RoomApiError(99991403))
+    assert not await hub.rooms.allowed(room["chat"])
+    blocked = store.rooms.get(OWNER, session["id"])
+    assert "额度" in blocked["reason"] and "99991403" in blocked["reason"]
+    assert blocked["retry_at"] >= time.time() + 3500
+    for _ in range(3):
+        await hub.tick()
+    channel.room_api.verify.assert_awaited_once()
+
+
+async def test_explicit_quota_denial_preserves_pending_group_creation(gateway):
+    hub, store, _, channel = gateway
+    channel.room_api.failure = RoomApiError(99991403)
+    session, room = await create(hub, store)
+    assert room["status"] == "QUEUED" and "额度" in room["reason"]
+    for _ in range(3):
+        await hub.tick()
+    assert len(channel.room_api.created) == 1
+    channel.room_api.failure = None
+    store.rooms.state(session["id"], "QUEUED", retry_at=0)
+    await hub.tick()
+    assert store.rooms.get(OWNER, session["id"])["status"] == "READY"
+    assert channel.room_api.created == [room["request_id"], room["request_id"]]

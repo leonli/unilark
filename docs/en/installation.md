@@ -2,7 +2,7 @@
 
 [简体中文](../zh-CN/installation.md) · [Home](../../README.md) · [User guide](user-guide.md)
 
-Applies to **0.0.6**. Follow the steps in order for a new installation. Existing
+Applies to **0.0.7**. Follow the steps in order for a new installation. Existing
 paired installations can skip to [maintenance](#maintenance). Example paths and
 IDs are placeholders; never copy another installation's identity or credentials.
 
@@ -37,7 +37,7 @@ python3.12 -m venv .venv
 cd dist
 sha256sum -c SHA256SUMS
 cd ..
-python3 dist/unilark-0.0.6-linux-x86_64/install.py
+python3 dist/unilark-0.0.7-linux-x86_64/install.py
 export PATH="$HOME/.local/bin:$PATH"
 unilark --version
 ```
@@ -55,7 +55,7 @@ layout. The prefix must be owned by you with mode `0700`.
 | Default path | Purpose |
 |---|---|
 | `~/.local/bin/unilark` | Stable command |
-| `~/.local/share/unilark/releases/0.0.6/` | Isolated program and Python environment |
+| `~/.local/share/unilark/releases/0.0.7/` | Isolated program and Python environment |
 | `~/.local/share/unilark/current` | Active version symlink |
 | `~/.unilark/agy.toml` | Your non-secret AGY configuration |
 | `~/.unilark/lark.env` | Credentials, mode `0600` |
@@ -244,9 +244,9 @@ native tasks to be idle and no queued/submitting/unknown operations. The updater
 stops the sole gateway, rechecks, backs up SQLite consistently, tests a migrated
 copy, and switches the program. It never restores old data over newly accepted work.
 
-0.0.6 uses schema **3** and accepts upgrade inputs from schemas 1–3. Version 0.0.5
+0.0.7 uses schema **3** and accepts upgrade inputs from schemas 1–3. Version 0.0.5
 can read schema 3; 0.0.4 and earlier cannot. Rollback is limited to compatible
-programs. Existing 0.0.5 users need no new permissions or pairing for 0.0.6.
+programs. Existing 0.0.5 users need no new permissions or pairing for 0.0.7.
 
 ```bash
 unilark --config "$HOME/.unilark/agy.toml" uninstall --system
@@ -264,6 +264,7 @@ credentials, AGY, login, and workspace. It is not a data-erasure command.
 | A group is not ready | Required scopes, published tenant grant, member verification; then retry from session details |
 | Group messages are ignored | Correct registered group, group-message scope, active connection, published subscription |
 | Reply/card is blocked | `doctor` delivery state, send/update permissions, group membership |
+| New session stalls; `99991403` or `quota_exhausted` | Monthly API quota is exhausted. Check usage/limit/reset in Lark administration. Version 0.0.7 shares a one-hour API cooldown; after quota restoration the next due request retries. Restarting cannot restore quota. Older UNKNOWN deliveries still require reconciliation. |
 | AGY unavailable/incompatible | Executable/profile, same OS user, login, tested bundle; never bypass checks |
 | UNKNOWN | Inspect possible native execution before doing anything that could duplicate it |
 | Mermaid stays as source | Matching browser/dependencies, image upload scope, valid and reasonably sized diagram |

@@ -2,7 +2,7 @@
 
 [简体中文](../zh-CN/user-guide.md) · [Home](../../README.md) · [Installation](installation.md)
 
-For **0.0.6**. First install and pair using the installation guide. The bot UI is
+For **0.0.7**. First install and pair using the installation guide. The bot UI is
 currently primarily Chinese; this guide includes the labels you will see.
 
 Each native session has one private Lark group. The bot's private chat is your

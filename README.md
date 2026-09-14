@@ -32,7 +32,7 @@ the English guide explains the visible labels.*
 
 ## Start here
 
-Version **0.0.6**, experimental. Verified runtime: **Linux x86_64, Python 3.12,
+Version **0.0.7**, experimental. Verified runtime: **Linux x86_64, Python 3.12,
 AGY 2.13.0, and international Lark**. The adapter checks a specific AGY bundle;
 arbitrary AGY versions are not supported. Python 3.11 is also a CI target.
 
@@ -46,7 +46,7 @@ python3.12 -m venv .venv
 .venv/bin/python scripts/build-release.py --output dist
 cd dist
 sha256sum -c SHA256SUMS
-python3 unilark-0.0.6-linux-x86_64/install.py
+python3 unilark-0.0.7-linux-x86_64/install.py
 ```
 
 Then prepare the AGY configuration, install the diagram browser, configure the Lark

@@ -93,6 +93,9 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
         loop = asyncio.get_running_loop()
         owner = store.owner(credentials.account)
         profile = str(client.transport.user_data.resolve())
+        if owner is not None:
+            previous = store.health(owner, profile) or {}
+            channel.quota.retry_at = float(previous.get("lark_api", {}).get("retry_at", 0))
 
         def report(state: str = "running") -> None:
             if owner is None:
@@ -132,6 +135,7 @@ async def run(config: Path, credentials_path: Path, state: Path) -> int:
                     "session_count": len(sessions),
                     "lark_errors": channel.errors,
                     "lark_rejections": channel.rejections,
+                    "lark_api": channel.quota.snapshot(),
                     "offline_since": offline_since,
                     "last_offline": last_offline,
                 },
