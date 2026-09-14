@@ -1,1 +1,1 @@
-"""待实现：见 docs/PRD.md 对应章节。M0 阶段不放占位实现。"""
+"""Authenticated Lark events, private rooms, card delivery, and rich media."""

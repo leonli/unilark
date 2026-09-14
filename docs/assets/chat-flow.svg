@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="765" viewBox="0 0 1080 765" role="img" aria-labelledby="title desc">
+  <title id="title">Unilark conversation workflow / 对话操作示意</title>
+  <desc id="desc">Three illustrated screens: create a session in private chat, observe one updating progress card in the session group, then receive a final rich answer. These are illustrations, not screenshots.</desc>
+  <defs><style>
+    text{font-family:Arial,'Noto Sans CJK SC','Microsoft YaHei',sans-serif;fill:#1d304e}
+    .title{font-size:28px;font-weight:700}.heading{font-size:18px;font-weight:700}.body{font-size:16px}.small{font-size:13px;fill:#617694}.tiny{font-size:11px;fill:#617694}.step{font-size:14px;font-weight:700;fill:#2464db}
+  </style></defs>
+  <rect width="1080" height="765" rx="20" fill="#f7f9fd"/>
+  <text x="30" y="47" class="title">From task to answer / 从任务到答复</text>
+  <text x="30" y="78" class="body">Create once → Watch one progress card → Receive the answer</text>
+  <text x="30" y="130" class="step">01  CREATE / 新建会话</text>
+  <text x="390" y="130" class="step">02  WORK / 原位更新</text>
+  <text x="750" y="130" class="step">03  ANSWER / 正常收结果</text>
+  <rect x="30" y="149" width="300" height="543" rx="17" fill="white" stroke="#cbd6e7"/>
+  <rect x="390" y="149" width="300" height="543" rx="17" fill="white" stroke="#cbd6e7"/>
+  <rect x="750" y="149" width="300" height="543" rx="17" fill="white" stroke="#cbd6e7"/>
+  <path d="M31 213H329M391 213H689M751 213H1049" stroke="#e2e8f2"/>
+  <text x="49" y="183" class="heading">Unilark · 私聊</text>
+  <text x="49" y="203" class="tiny">Bot private chat</text>
+  <text x="409" y="183" class="heading">架构梳理</text>
+  <text x="409" y="203" class="tiny">Session group · 你和机器人</text>
+  <text x="769" y="183" class="heading">架构梳理</text>
+  <text x="769" y="203" class="tiny">Same session · 同一原生会话</text>
+  <rect x="47" y="236" width="266" height="353" rx="11" fill="#f8faff" stroke="#dce5f3"/>
+  <text x="64" y="269" class="heading">新建会话</text>
+  <text x="64" y="300" class="small">标题 / Title</text>
+  <rect x="63" y="309" width="234" height="43" rx="7" fill="white" stroke="#cbd6e7"/>
+  <text x="76" y="337" class="body">架构梳理</text>
+  <text x="64" y="381" class="small">项目 / Project</text>
+  <rect x="63" y="391" width="234" height="43" rx="7" fill="white" stroke="#cbd6e7"/>
+  <text x="76" y="419" class="body">Demo 项目</text>
+  <path d="M273 408l6 6 6-6" fill="none" stroke="#617694" stroke-width="2"/>
+  <text x="64" y="466" class="small">首条任务 / Optional first task</text>
+  <text x="64" y="492" class="body">请解释系统架构。</text>
+  <rect x="63" y="520" width="234" height="45" rx="8" fill="#2464db"/>
+  <text x="119" y="549" style="font-size:17px;fill:white">创建会话群</text>
+  <text x="67" y="617" class="small">群就绪后点「进入会话」</text>
+  <text x="67" y="639" class="tiny">Enter the group when it is ready</text>
+  <rect x="42" y="656" width="91" height="25" rx="5" fill="#eaf1ff"/>
+  <text x="53" y="674" class="small">新建会话</text>
+  <text x="148" y="674" class="small">打开会话</text>
+  <text x="265" y="674" class="small">设置</text>
+  <rect x="452" y="235" width="221" height="48" rx="10" fill="#eaf1ff"/>
+  <text x="465" y="265" class="body">请解释系统架构。</text>
+  <rect x="407" y="309" width="266" height="165" rx="10" fill="#f8faff" stroke="#d5e0f1"/>
+  <rect x="407" y="324" width="4" height="48" rx="2" fill="#2464db"/>
+  <text x="424" y="342" class="heading">正在执行命令…</text>
+  <text x="424" y="369" style="font-size:14px;font-family:monospace;fill:#455e7e">rg --files src</text>
+  <text x="424" y="399" class="small">还有 1 条消息排队。</text>
+  <rect x="423" y="421" width="70" height="34" rx="7" fill="white" stroke="#cbd6e7"/>
+  <text x="442" y="444" class="body">停止</text>
+  <text x="415" y="508" class="small">思考、命令、写文件共用此卡</text>
+  <text x="415" y="531" class="tiny">Thinking → tools → writing: one card</text>
+  <rect x="440" y="557" width="233" height="48" rx="10" fill="#eaf1ff"/>
+  <text x="453" y="587" class="body">下一步再补一张时序图。</text>
+  <path d="M406 643H674M766 643H1034" stroke="#e2e8f2"/>
+  <text x="411" y="674" class="small">继续发话 / Send a message…</text>
+  <rect x="767" y="235" width="266" height="39" rx="8" fill="#f1f4f9"/>
+  <text x="782" y="260" class="small">本轮结束 / Turn ended</text>
+  <rect x="767" y="295" width="266" height="309" rx="10" fill="white" stroke="#dce5f3"/>
+  <text x="783" y="331" class="heading">架构说明</text>
+  <text x="783" y="363" class="body">系统由三个部分组成：</text>
+  <text x="783" y="396" class="body">• Lark：对话入口</text>
+  <text x="783" y="426" class="body">• 网关：路由与队列</text>
+  <text x="783" y="456" class="body">• AGY：原生执行</text>
+  <rect x="783" y="482" width="234" height="65" rx="8" fill="#f1f6ff"/>
+  <rect x="791" y="497" width="59" height="34" rx="6" fill="white" stroke="#9db9e8"/>
+  <rect x="870" y="497" width="59" height="34" rx="6" fill="white" stroke="#9db9e8"/>
+  <rect x="949" y="497" width="59" height="34" rx="6" fill="white" stroke="#9db9e8"/>
+  <text x="805" y="519" class="small">Lark</text>
+  <text x="886" y="519" class="small">Hub</text>
+  <text x="965" y="519" class="small">AGY</text>
+  <path d="M851 514h16m-4-4 4 4-4 4m67-4h16m-4-4 4 4-4 4" fill="none" stroke="#6080aa" stroke-width="1.5"/>
+  <text x="783" y="579" class="small">Markdown + Mermaid</text>
+  <text x="771" y="674" class="small">继续对话 / Continue…</text>
+  <text x="30" y="734" class="small">Illustration, not a screenshot / 操作示意，非客户端截图。审批或问答仅在需要时另发交互卡。</text>
+</svg>

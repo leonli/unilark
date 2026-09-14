@@ -4,6 +4,10 @@
 !.env.example
 *.pem
 *.key
+*.p12
+*.pfx
+config.local.toml
+agy.toml
 
 # 本地账本与运行期产物
 *.db
@@ -27,3 +31,8 @@ build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+playwright-report/
+test-results/

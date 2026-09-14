@@ -2,9 +2,14 @@
 name = "unilark"
 version = "0.0.6"
 description = "以 Lark 为移动交互入口、可接入不同本地 Agent sidecar 的常驻会话网关"
+readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "UNLICENSED" }   # PRD 18 节第 1 项待拍板前不写猜测许可证
+license = { text = "UNLICENSED" }  # No open-source license has been granted; see NOTICE.md.
 dependencies = ["httpx==0.28.1", "markdown-it-py==4.2.0"]
+
+[project.urls]
+Repository = "https://github.com/leonli/unilark"
+Issues = "https://github.com/leonli/unilark/issues"
 
 [project.optional-dependencies]
 lark = ["lark-channel-sdk==1.4.0", "playwright==1.62.0"]

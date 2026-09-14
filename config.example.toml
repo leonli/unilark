@@ -1,5 +1,6 @@
 # Non-secret config. Point at an already authorized AGY instance.
-# This early M1 client does not start or terminate AGY.
+# The gateway does not install, start, terminate, or log in to AGY.
+# See docs/en/installation.md or docs/zh-CN/installation.md for the exact requirements.
 [agy]
 executable = "/absolute/path/to/Antigravity-x64/antigravity"
 user_data = "/absolute/path/to/isolated/home/.agy-user-data"

@@ -1,5 +1,9 @@
 # Lark / 飞书配置与真实接力验收
 
+本文保留初期配置与验收历史。新安装请使用[中文安装手册](zh-CN/installation.md#5-配置-lark-应用)或
+[English installation guide](en/installation.md#5-configure-the-lark-app)。
+2026-09-14 用户已确认并修正设置菜单配置；精确事件 ID 为 `unilark.settings`。
+
 适用锁定的 `lark-channel-sdk==1.4.0`，资料核对：2026-09-12。
 本机配置与真实租户闭环已经验证；新用户自助安装旅程尚未由另一位用户验收。界面名称可能不同。
 

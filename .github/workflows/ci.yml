@@ -36,6 +36,8 @@ jobs:
         run: ruff check --output-format=github .
       - name: mypy
         run: mypy
+      - name: Documentation links and diagrams
+        run: python scripts/check-docs.py
 
   test:
     runs-on: ubuntu-latest
@@ -53,7 +55,7 @@ jobs:
       - name: 单元与集成测试（不含真机用例）
         run: |
           echo "::notice::real_agy / real_lark 用例不在 CI 内运行；发布前必须在真实 AGY 与真实 Lark 租户上跑过（PRD 12.4）"
-          pytest -q -m "not real_agy and not real_lark"
+          pytest -q -m "not real_agy and not real_lark and not local_browser"
 
   audit:
     runs-on: ubuntu-latest

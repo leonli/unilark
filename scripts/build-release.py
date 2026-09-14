@@ -107,7 +107,8 @@ def main() -> None:
     )
     shutil.copyfile(ROOT / "src/unilark/lifecycle/installer.py", bundle / "install.py")
     shutil.copyfile(ROOT / "config.example.toml", bundle / "config.example.toml")
-    shutil.copyfile(ROOT / "README.md", bundle / "README.md")
+    for name in ("README.md", "README.zh-CN.md", "NOTICE.md"):
+        shutil.copyfile(ROOT / name, bundle / name)
     shutil.copytree(ROOT / "docs", bundle / "docs")
     manifest = {
         "format": 1,
